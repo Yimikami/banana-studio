@@ -925,6 +925,13 @@ const AuthorizedWorkspace: React.FC<{
         setActiveRequests(value=>Math.max(0,value-1));toast.error('Video not submitted',message);return;
       }
 
+      if (deletedMediaIdsRef.current.has(videoId)) {
+        // Deleted while its row was being created: remove that row and submit nothing.
+        await deleteImage(placeholder).catch(() => {});
+        setActiveRequests(value => Math.max(0, value - 1));
+        return;
+      }
+
       const progressToastId = toast.loading(
         'Generating video...',
         config.videoModel === 'minimax-h3'
@@ -1323,6 +1330,7 @@ const AuthorizedWorkspace: React.FC<{
   const handleDeleteFolder = async (folderId: string) => {
     try {
       const result = await deleteFolder(folderId);
+      result.mediaIds.forEach(id => deletedMediaIdsRef.current.add(id));
       const deletedMediaIds = new Set(result.mediaIds);
       setGeneratedMedia(prev => prev.filter(media => !deletedMediaIds.has(media.id)));
       toast.success(
