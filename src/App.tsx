@@ -33,6 +33,8 @@ import { mergeReconciledGalleryCosts } from './lib/gallery/galleryBillingRefresh
 import { createPromptPreparation } from './lib/prompts/promptPreparation';
 import { resolveTextModelPreferences } from './lib/prompts/textModels';
 
+class DeletedVideoError extends Error { constructor() { super('The video was deleted.'); } }
+
 const resolveImageModel = (value: unknown): GenerationConfig['imageModel'] => getActiveImageModel(value);
 
 const mergeSavedMedia = (
@@ -167,6 +169,9 @@ const AuthorizedWorkspace: React.FC<{
   const [generationProgress, setGenerationProgress] = useState<{ completed: number; total: number } | null>(null);
   const ownImageJobsRef = useRef(new Set<string>());
   const favoriteTogglesRef = useRef(new Set<string>());
+  // Cancelling a running video deletes its card and row; a poll that finishes
+  // later must not save the video again.
+  const deletedMediaIdsRef = useRef(new Set<string>());
 
   // Navigation State
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -579,8 +584,14 @@ const AuthorizedWorkspace: React.FC<{
   const persistCompletedVideo = async (media: GeneratedMedia) => {
     const MAX_SAVE_ATTEMPTS = 6;
     for (let attempt = 1; attempt <= MAX_SAVE_ATTEMPTS; attempt++) {
+      if (deletedMediaIdsRef.current.has(media.id)) throw new DeletedVideoError();
       await assertWorkspaceSession();
       const savedResult = await saveVideo(media);
+      if (savedResult && deletedMediaIdsRef.current.has(media.id)) {
+        // Deleted while saving: remove the copy this save just wrote.
+        await deleteImage({ ...media, storagePath: savedResult.storagePath, thumbnailPath: savedResult.thumbnailPath }).catch(() => {});
+        throw new DeletedVideoError();
+      }
       if (savedResult) return savedResult;
       if (attempt < MAX_SAVE_ATTEMPTS) {
         await new Promise(resolve => setTimeout(resolve, 5000));
@@ -704,6 +715,7 @@ const AuthorizedWorkspace: React.FC<{
         toast.success('Video Ready', 'A queued video generation completed.');
       }
     } catch (error: any) {
+      if (deletedMediaIdsRef.current.has(videoId)) return;
       const message = error?.message || 'Video generation failed';
       if (isRecoverableVideoTaskError(error)) {
         await updateVideoStatus(videoId, 'processing', { metadata: { pollingWarning: message } });
@@ -1051,6 +1063,7 @@ const AuthorizedWorkspace: React.FC<{
           toast.success('Generation Complete', 'Video created successfully.');
         }
       } catch (error: any) {
+        if (deletedMediaIdsRef.current.has(videoId)) { toast.dismissToast(progressToastId); return; }
         console.error("Video generation failed", error);
         const { title, message } = parseErrorMessage(error);
 
@@ -1232,6 +1245,7 @@ const AuthorizedWorkspace: React.FC<{
   };
 
   const handleDelete = async (media: GeneratedMedia) => {
+    deletedMediaIdsRef.current.add(media.id);
     setGeneratedMedia(prev => prev.filter(m => m.id !== media.id));
     try {
       await deleteImage(media);
@@ -1243,6 +1257,7 @@ const AuthorizedWorkspace: React.FC<{
 
   const handleDeleteMultiple = async (mediaIds: string[]) => {
     const toDelete = generatedMedia.filter(m => mediaIds.includes(m.id));
+    mediaIds.forEach(id => deletedMediaIdsRef.current.add(id));
     setGeneratedMedia(prev => prev.filter(m => !mediaIds.includes(m.id)));
     try {
       await deleteImages(toDelete);
