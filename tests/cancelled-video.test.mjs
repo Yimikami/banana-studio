@@ -14,11 +14,12 @@ const fd = src.indexOf('  const handleDeleteFolder = async');
 const fe = src.indexOf('  const handleRenameFolder', fd);
 const body = src.slice(a, b) + src.slice(hd, he) + src.slice(fd, fe);
 const cls = (src.match(/class DeletedVideoError[^\n]*\n/) || [''])[0];
-const code = transformSync(`${cls}module.exports = (env) => { const { setGeneratedMedia, setActiveRequests, pollVideoTask, saveVideo, deleteImage, updateVideoStatus, getImageById, assertWorkspaceSession, toast, deletedMediaIdsRef, RecoverableVideoTaskError, isRecoverableVideoTaskError, DEFAULT_VIDEO_MODEL, deleteFolder, setTimeout } = env; ${body}; return { resumeVideoPolling, handleDelete, handleDeleteFolder }; };`, { loader: 'ts', format: 'cjs' }).code;
+const code = transformSync(`${cls}module.exports = (env) => { const { setGeneratedMedia, setActiveRequests, pollVideoTask, saveVideo, deleteImage, updateVideoStatus, getImageById, assertWorkspaceSession, toast, deletedMediaIdsRef, RecoverableVideoTaskError, isRecoverableVideoTaskError, DEFAULT_VIDEO_MODEL, deleteFolder, setTimeout, generatedMedia, workspaceStorage } = env; ${body}; return { resumeVideoPolling, handleDelete, handleDeleteFolder }; };`, { loader: 'ts', format: 'cjs' }).code;
+class FolderDeleteError extends Error { constructor(message, keptMediaIds) { super(message); this.keptMediaIds = keptMediaIds; } }
 const run = async deleteWhen => {
   const calls = { saveCalls: 0, saved: 0, deleted: [], completed: 0, toasts: [] };
   let retryWait;
-  let items = [{ id: 'v1', mediaType: 'video', status: 'processing', isLoading: true }];
+  let items = [{ id: 'v1', mediaType: 'video', status: 'processing', isLoading: true, folderId: 'f1' }];
   let release, releaseSave;
   const env = {
     setGeneratedMedia: f => { items = typeof f === 'function' ? f(items) : f; }, setActiveRequests() {},
@@ -31,7 +32,14 @@ const run = async deleteWhen => {
     deletedMediaIdsRef: { current: new Set() },
     RecoverableVideoTaskError: class extends Error {}, isRecoverableVideoTaskError: () => false, DEFAULT_VIDEO_MODEL: 'm',
     // The ids are reported before the rows are deleted, as the real deleteFolder does.
-    deleteFolder: async (_id, onMediaIds) => { onMediaIds?.(['v1']); calls.markedBeforeDelete = env.deletedMediaIdsRef.current.has('v1'); return { folderIds: ['f1'], mediaIds: ['v1'] }; },
+    deleteFolder: async (_id, onMediaIds) => {
+      // 'folder-new-row': the row was not visible to the delete yet; only the folder ids are reported.
+      onMediaIds?.(deleteWhen === 'folder-new-row' ? [] : ['v1'], ['f1']);
+      calls.markedBeforeDelete = env.deletedMediaIdsRef.current.has('v1');
+      if (deleteWhen === 'folder-failed') throw new FolderDeleteError('Folder media could not be deleted: x', ['v1']);
+      return { folderIds: ['f1'], mediaIds: deleteWhen === 'folder-new-row' ? [] : ['v1'] };
+    },
+    generatedMedia: items, workspaceStorage: { FolderDeleteError },
     // The wait between save attempts is gated so the delete lands inside it.
     setTimeout: deleteWhen === 'retry' ? fn => { retryWait = fn; } : setTimeout,
   };
@@ -41,7 +49,7 @@ const run = async deleteWhen => {
   const done = resumeVideoPolling('v1', 'task1', items[0]);
   for (let i = 0; i < 10; i++) await new Promise(r => setTimeout(r, 0));
   if (deleteWhen === 'polling') await handleDelete(items[0]);
-  if (deleteWhen === 'folder') await handleDeleteFolder('f1');
+  if (deleteWhen.startsWith('folder')) await handleDeleteFolder('f1').catch(() => {});
   release();
   for (let i = 0; i < 10; i++) await new Promise(r => setTimeout(r, 0));
   if (deleteWhen === 'saving') { await handleDelete({ id: 'v1', mediaType: 'video' }); releaseSave(); }
@@ -78,6 +86,21 @@ test('a running video in a deleted folder is never saved again', async () => {
   assert.equal(result.saved, 0);
   assert.equal(result.completed, 0);
   assert.ok(!result.toasts.includes('Video Ready'));
+});
+
+test('a video whose folder delete failed is saved and completed as usual', async () => {
+  const result = await run('folder-failed');
+  assert.equal(result.markedBeforeDelete, true);
+  assert.equal(result.saved, 1);
+  assert.equal(result.completed, 1);
+});
+
+test('a video whose row was not visible to the folder delete is still marked and its row removed', async () => {
+  const result = await run('folder-new-row');
+  assert.equal(result.markedBeforeDelete, true);
+  assert.deepEqual(result.deleted, ['default']);
+  assert.equal(result.saved, 0);
+  assert.equal(result.cardPresent, false);
 });
 
 test('a video that is not deleted is still saved and completed', async () => {

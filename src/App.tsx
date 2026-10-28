@@ -1328,11 +1328,22 @@ const AuthorizedWorkspace: React.FC<{
   };
 
   const handleDeleteFolder = async (folderId: string) => {
+    // Cards in the folder tree are marked too: a video whose row is still being
+    // created is not visible to the delete yet. A failed delete unmarks what it kept.
+    const marked = new Set<string>();
+    let inMemory: GeneratedMedia[] = [];
+    const markDeleted = (ids: string[], folderIds: string[] = []) => {
+      inMemory = [...inMemory, ...generatedMedia.filter(media => media.folderId && folderIds.includes(media.folderId) && !ids.includes(media.id))];
+      [...ids, ...inMemory.map(media => media.id)].forEach(id => {
+        if (!deletedMediaIdsRef.current.has(id)) { marked.add(id); deletedMediaIdsRef.current.add(id); }
+      });
+    };
     try {
-      const markDeleted = (ids: string[]) => ids.forEach(id => deletedMediaIdsRef.current.add(id));
       const result = await deleteFolder(folderId, markDeleted);
       markDeleted(result.mediaIds);
-      const deletedMediaIds = new Set(result.mediaIds);
+      // Their rows may have been created after the delete read the folder.
+      await Promise.all(inMemory.map(media => deleteImage(media).catch(() => {})));
+      const deletedMediaIds = new Set([...result.mediaIds, ...inMemory.map(media => media.id)]);
       setGeneratedMedia(prev => prev.filter(media => !deletedMediaIds.has(media.id)));
       toast.success(
         'Folder Deleted',
@@ -1340,6 +1351,8 @@ const AuthorizedWorkspace: React.FC<{
       );
       return result;
     } catch (error) {
+      const kept = new Set([...(error instanceof workspaceStorage.FolderDeleteError ? error.keptMediaIds : []), ...inMemory.map(media => media.id)]);
+      kept.forEach(id => { if (marked.has(id)) deletedMediaIdsRef.current.delete(id); });
       console.error('Folder delete failed', error);
       toast.error('Delete Failed', 'The folder and its contents could not be fully deleted.');
       throw error;
