@@ -30,7 +30,8 @@ const run = async deleteWhen => {
     toast: { success: t => calls.toasts.push(t), warning: t => calls.toasts.push(t), error: t => calls.toasts.push(t), dismissToast() {} },
     deletedMediaIdsRef: { current: new Set() },
     RecoverableVideoTaskError: class extends Error {}, isRecoverableVideoTaskError: () => false, DEFAULT_VIDEO_MODEL: 'm',
-    deleteFolder: async () => ({ folderIds: ['f1'], mediaIds: ['v1'] }),
+    // The ids are reported before the rows are deleted, as the real deleteFolder does.
+    deleteFolder: async (_id, onMediaIds) => { onMediaIds?.(['v1']); calls.markedBeforeDelete = env.deletedMediaIdsRef.current.has('v1'); return { folderIds: ['f1'], mediaIds: ['v1'] }; },
     // The wait between save attempts is gated so the delete lands inside it.
     setTimeout: deleteWhen === 'retry' ? fn => { retryWait = fn; } : setTimeout,
   };
@@ -73,6 +74,7 @@ test('a video deleted between save attempts is not saved on the retry', async ()
 
 test('a running video in a deleted folder is never saved again', async () => {
   const result = await run('folder');
+  assert.equal(result.markedBeforeDelete, true);
   assert.equal(result.saved, 0);
   assert.equal(result.completed, 0);
   assert.ok(!result.toasts.includes('Video Ready'));

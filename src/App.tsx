@@ -1329,8 +1329,9 @@ const AuthorizedWorkspace: React.FC<{
 
   const handleDeleteFolder = async (folderId: string) => {
     try {
-      const result = await deleteFolder(folderId);
-      result.mediaIds.forEach(id => deletedMediaIdsRef.current.add(id));
+      const markDeleted = (ids: string[]) => ids.forEach(id => deletedMediaIdsRef.current.add(id));
+      const result = await deleteFolder(folderId, markDeleted);
+      markDeleted(result.mediaIds);
       const deletedMediaIds = new Set(result.mediaIds);
       setGeneratedMedia(prev => prev.filter(media => !deletedMediaIds.has(media.id)));
       toast.success(

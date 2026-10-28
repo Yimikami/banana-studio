@@ -1980,7 +1980,7 @@ export interface DeleteFolderResult {
   mediaIds: string[];
 }
 
-export const deleteFolder = async (folderId: string): Promise<DeleteFolderResult> => {
+export const deleteFolder = async (folderId: string, onMediaIds?: (ids: string[]) => void): Promise<DeleteFolderResult> => {
   const folderRelations: Array<{ id: string; parentId: string | null }> = [];
   let localFolders: Folder[] = [];
   let localMedia: GeneratedMedia[] = [];
@@ -2076,7 +2076,13 @@ export const deleteFolder = async (folderId: string): Promise<DeleteFolderResult
         }
       }
     }
+  }
 
+  // The caller marks these as deleted before any row goes, so a job that
+  // finishes during the delete cannot save one of them again.
+  onMediaIds?.(Array.from(mediaIds));
+
+  if (supabase && userId) {
     // Delete media before folders so no foreign-key action can move content
     // back to the parent/root folder.
     for (const ids of chunk(Array.from(mediaIds))) {
