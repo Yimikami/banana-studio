@@ -1732,8 +1732,10 @@ export const Gallery: React.FC<GalleryProps> = ({
 
   const handleDownloadJPEG = async (media: GeneratedMedia) => {
     setDownloadError(null);
+    let sourceUrl: string | undefined;
     try {
       const blob = await fetchMediaBlob(media.url);
+      sourceUrl = URL.createObjectURL(blob);
 
       // Convert to JPEG using canvas
       const img = new Image();
@@ -1742,7 +1744,7 @@ export const Gallery: React.FC<GalleryProps> = ({
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = reject;
-        img.src = URL.createObjectURL(blob);
+        img.src = sourceUrl!;
       });
 
       const canvas = document.createElement('canvas');
@@ -1758,28 +1760,25 @@ export const Gallery: React.FC<GalleryProps> = ({
       ctx.drawImage(img, 0, 0);
 
       // Convert to JPEG at full quality
-      canvas.toBlob((jpegBlob) => {
-        if (!jpegBlob) {
-          console.error('JPEG conversion failed');
-          return;
-        }
+      const jpegBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('JPEG conversion failed')), 'image/jpeg', 1.0);
+      }); // Quality 1.0 = 100%
 
-        const blobUrl = URL.createObjectURL(jpegBlob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = `banana-${media.id}.jpg`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+      const blobUrl = URL.createObjectURL(jpegBlob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `banana-${media.id}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
 
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-        setDownloadMenuId(null);
-      }, 'image/jpeg', 1.0); // Quality 1.0 = 100%
-
-      URL.revokeObjectURL(img.src);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      setDownloadMenuId(null);
     } catch (error) {
       console.error('Download JPEG failed:', error);
       failDownload(media, error);
+    } finally {
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
     }
   };
 
