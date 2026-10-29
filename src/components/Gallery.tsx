@@ -28,6 +28,7 @@ import { collectBatchDownload, describeBatchDownloadFailure } from '../lib/galle
 import { FolderPreview } from './FolderPreview';
 import { FolderShareDialog } from './FolderShareDialog';
 import { buildFolderPreviewIndex } from './folderPreviews';
+import { describeBatchDelete } from '../lib/gallery/deleteConfirmation';
 import { groupBrainstormImages } from './galleryOrdering';
 import { fetchMediaBlob, shouldOpenDownloadFallback } from '../lib/gallery/mediaDownload';
 import { getGalleryAspectRatio, getGalleryCardStyle, getGallerySwipeDirection, isGalleryDismissSwipe, getNavigableGalleryMedia, type GallerySwipeStart } from './galleryPresentation';
@@ -1683,7 +1684,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   const handleBatchDelete = async () => {
     if (isReadOnly) return;
     if (selectedIds.size === 0) return;
-    if (!confirm(`Delete ${selectedIds.size} images?`)) return;
+    if (!confirm(describeBatchDelete(selectedIds, images))) return;
 
     const ids = Array.from(selectedIds);
     if (onDeleteMultiple) {
