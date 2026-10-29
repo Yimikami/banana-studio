@@ -90,9 +90,10 @@ const parseChannelInput = (
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  if (/^@[a-zA-Z0-9_.-]+$/.test(trimmed))
+  // Handles may use letters and digits of any script, plus _ - . and the middle dot.
+  if (/^@[\p{L}\p{M}\p{N}_.·-]+$/u.test(trimmed))
     return { type: 'handle', value: trimmed };
-  if (/^[a-zA-Z0-9_.-]+$/.test(trimmed) && !trimmed.includes('.'))
+  if (/^[\p{L}\p{M}\p{N}_·-]+$/u.test(trimmed))
     return { type: 'handle', value: `@${trimmed}` };
 
   try {
@@ -100,15 +101,17 @@ const parseChannelInput = (
     if (!['http:', 'https:'].includes(url.protocol)
       || !(url.hostname === 'youtube.com' || url.hostname.endsWith('.youtube.com'))) return null;
     const p = url.pathname;
+    // Browsers copy non-ASCII handles percent-encoded; the API expects the handle itself.
+    const decode = (segment: string) => { try { return decodeURIComponent(segment); } catch { return segment; } };
 
     const handle = p.match(/^\/@([^/]+)/);
-    if (handle) return { type: 'handle', value: `@${handle[1]}` };
+    if (handle) return { type: 'handle', value: `@${decode(handle[1])}` };
 
     const channel = p.match(/^\/channel\/(UC[a-zA-Z0-9_-]+)/);
     if (channel) return { type: 'channelId', value: channel[1] };
 
     const user = p.match(/^\/(c|user)\/([^/]+)/);
-    if (user) return { type: 'username', value: user[2] };
+    if (user) return { type: 'username', value: decode(user[2]) };
 
     const custom = p.match(/^\/([a-zA-Z0-9_-]+)\/?$/);
     if (custom && !['watch', 'feed', 'playlist', 'shorts', 'live'].includes(custom[1]))
