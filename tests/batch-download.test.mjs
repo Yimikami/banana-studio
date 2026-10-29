@@ -29,6 +29,14 @@ test('items missing from the loaded list count as failed', async () => {
   assert.deepEqual(await collectBatchDownload(['a'], media, async () => { throw new TypeError('Failed to fetch'); }).then(r => [r.files.length, r.failed]), [0, 1]);
 });
 
+test('a 200 JSON error page is excluded from the ZIP without dropping valid media', async () => {
+  const { files, failed } = await collectBatchDownload(['a', 'b'], media, async url => url.endsWith('/expired')
+    ? new Response('{"error":"expired"}', { headers: { 'content-type': 'application/problem+json' } })
+    : new Response(new Blob(['image'], { type: 'image/png' })));
+  assert.deepEqual(files.map(file => file.name), ['banana-a.png']);
+  assert.equal(failed, 1);
+});
+
 test('the notice says how many items are missing', () => {
   assert.equal(describeBatchDownloadFailure(1, 3), '1 of 3 items could not be downloaded. The ZIP contains the other 2. Your selection is kept so you can try again.');
   assert.equal(describeBatchDownloadFailure(3, 3), 'None of the 3 selected items could be downloaded. Try again.');

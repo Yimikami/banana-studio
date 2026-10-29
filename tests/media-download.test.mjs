@@ -20,3 +20,11 @@ test('a working download returns the file, and request failures keep the new-tab
   // Decoding or canvas failures while converting to JPEG also keep the fallback.
   assert.equal(shouldOpenDownloadFallback(new Error('Canvas context failed')), true);
 });
+
+test('a successful status with an HTML page is not saved or opened as media', async () => {
+  const error = await fetchMediaBlob('https://cdn/login', async () => new Response('<html>Sign in</html>', {
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  })).catch(error => error);
+  assert.match(error.message, /page instead of media/);
+  assert.equal(shouldOpenDownloadFallback(error), false);
+});
