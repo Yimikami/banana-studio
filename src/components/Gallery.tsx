@@ -24,6 +24,7 @@ import { getComparisonSelection, isComparableImage } from './imageComparison';
 import { YouTubePreviewDialog } from './YouTubePreviewDialog';
 import { Toast } from './Toast';
 import { HelpCenter } from './HelpCenter';
+import { collectBatchDownload, describeBatchDownloadFailure } from '../lib/gallery/batchDownload';
 import { FolderPreview } from './FolderPreview';
 import { FolderShareDialog } from './FolderShareDialog';
 import { buildFolderPreviewIndex } from './folderPreviews';
@@ -806,6 +807,8 @@ export const Gallery: React.FC<GalleryProps> = ({
   // Move Menu State
   const [moveMenuOpen, setMoveMenuOpen] = useState(false);
   const [isDownloadingBatch, setIsDownloadingBatch] = useState(false);
+  const [batchDownloadError, setBatchDownloadError] = useState<string | null>(null);
+  useEffect(() => { if (!isSelectionMode) setBatchDownloadError(null); }, [isSelectionMode]);
   const moveMenuRef = useRef<HTMLDivElement>(null);
   const isPhotoDevice = isMobilePhotoDevice();
   const [preparedPhotos, setPreparedPhotos] = useState<File[] | null>(null);
@@ -1647,20 +1650,13 @@ export const Gallery: React.FC<GalleryProps> = ({
   const handleBatchDownload = async () => {
     if (selectedIds.size === 0) return;
     setIsDownloadingBatch(true);
+    setBatchDownloadError(null);
     try {
+      const { files, failed } = await collectBatchDownload(Array.from(selectedIds), images);
+      if (failed) setBatchDownloadError(describeBatchDownloadFailure(failed, selectedIds.size));
+      if (!files.length) return;
       const zip = new JSZip();
-      const promises = Array.from(selectedIds).map(async (id) => {
-        const img = images.find(i => i.id === id);
-        if (!img) return;
-        const response = await fetch(img.url);
-        // An error body must never be saved as the media file.
-        if (!response.ok) throw new Error(`Download failed (${response.status}).`);
-        const blob = await response.blob();
-        const ext = img.mediaType === 'video' ? 'mp4' : blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png';
-        zip.file(`banana-${id}.${ext}`, blob);
-      });
-
-      await Promise.all(promises);
+      for (const file of files) zip.file(file.name, file.blob);
       const content = await zip.generateAsync({ type: "blob" });
       const url = window.URL.createObjectURL(content);
       const link = document.createElement('a');
@@ -1668,10 +1664,12 @@ export const Gallery: React.FC<GalleryProps> = ({
       link.download = `banana-batch-${Date.now()}.zip`;
       link.click();
       window.URL.revokeObjectURL(url);
+      if (failed) return;
       setIsSelectionMode(false);
       setSelectedIds(new Set());
     } catch (e) {
       console.error("Batch download failed", e);
+      setBatchDownloadError('The ZIP could not be created. Try again.');
     } finally {
       setIsDownloadingBatch(false);
     }
@@ -2561,6 +2559,7 @@ export const Gallery: React.FC<GalleryProps> = ({
               </div>
             </div>
             {selectedIds.size > comparableSelection.length && <p role="status" className="mt-2 text-[11px] text-gray-400">{selectedIds.size - comparableSelection.length} unavailable or non-image items excluded from comparison</p>}
+            {batchDownloadError && <p role="alert" className="mt-2 text-xs text-amber-200">{batchDownloadError}</p>}
             {!isReadOnly && isPhotoDevice && (
               <div className="mt-2 border-t border-white/[0.06] pt-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
