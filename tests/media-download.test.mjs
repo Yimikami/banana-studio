@@ -28,3 +28,12 @@ test('a successful status with an HTML page is not saved or opened as media', as
   assert.match(error.message, /page instead of media/);
   assert.equal(shouldOpenDownloadFallback(error), false);
 });
+
+test('a mislabeled JPEG keeps its bytes and correct extension', async () => {
+  const bytes = Uint8Array.of(0xff, 0xd8, 0xff, 0xe0, 0, 1);
+  const blob = await fetchMediaBlob('https://cdn/photo', async () => new Response(bytes, {
+    headers: { 'content-type': 'text/plain' },
+  }));
+  assert.equal(blob.type, 'image/jpeg');
+  assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), bytes);
+});

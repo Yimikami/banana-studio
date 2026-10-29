@@ -37,6 +37,15 @@ test('a 200 JSON error page is excluded from the ZIP without dropping valid medi
   assert.equal(failed, 1);
 });
 
+test('legacy JSON/XML error types fail while a mislabeled PNG stays in the ZIP', async () => {
+  const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0);
+  const { files, failed } = await collectBatchDownload(['a', 'b', 'v'], media, async url => url.endsWith('/a')
+    ? new Response(png, { headers: { 'content-type': 'text/plain' } })
+    : new Response('error', { headers: { 'content-type': url.endsWith('/v') ? 'application/x-xml' : 'application/x-json' } }));
+  assert.deepEqual(files.map(file => [file.name, file.blob.type]), [['banana-a.png', 'image/png']]);
+  assert.equal(failed, 2);
+});
+
 test('the notice says how many items are missing', () => {
   assert.equal(describeBatchDownloadFailure(1, 3), '1 of 3 items could not be downloaded. The ZIP contains the other 2. Your selection is kept so you can try again.');
   assert.equal(describeBatchDownloadFailure(3, 3), 'None of the 3 selected items could be downloaded. Try again.');
