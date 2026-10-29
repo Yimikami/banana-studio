@@ -1,4 +1,5 @@
 import type { GeneratedMedia } from '../../types';
+import { assertMediaDownloadResponse } from './mediaDownload';
 
 export interface BatchDownloadFile { name: string; blob: Blob }
 
@@ -11,8 +12,8 @@ export const collectBatchDownload = async (
     const item = media.find(entry => entry.id === id);
     if (!item?.url) throw new Error('This item is not available.');
     const response = await fetcher(item.url);
-    // An error body must never be saved as the media file.
-    if (!response.ok) throw new Error(`Download failed (${response.status}).`);
+    // An error page must never be saved as the media file, even with HTTP 200.
+    assertMediaDownloadResponse(response);
     const blob = await response.blob();
     const ext = item.mediaType === 'video' ? 'mp4' : blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png';
     return { name: `banana-${id}.${ext}`, blob };
