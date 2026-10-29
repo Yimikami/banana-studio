@@ -28,6 +28,7 @@ import { FolderPreview } from './FolderPreview';
 import { FolderShareDialog } from './FolderShareDialog';
 import { buildFolderPreviewIndex } from './folderPreviews';
 import { groupBrainstormImages } from './galleryOrdering';
+import { fetchMediaBlob, shouldOpenDownloadFallback } from '../lib/gallery/mediaDownload';
 import { getGalleryAspectRatio, getGalleryCardStyle, getGallerySwipeDirection, isGalleryDismissSwipe, getNavigableGalleryMedia, type GallerySwipeStart } from './galleryPresentation';
 import { GALLERY_DRAG_TYPE, GALLERY_DRAG_ID, GALLERY_DRAG_MEDIA_IDS, getDraggedMediaIds, readGalleryDragPayload, getMediaIdsForMove, canMoveGalleryFolder, type GalleryDragPayload } from './galleryDragDrop';
 
@@ -1702,12 +1703,16 @@ export const Gallery: React.FC<GalleryProps> = ({
 
   // Download menu state - tracks which image has download options open
   const [downloadMenuId, setDownloadMenuId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<{ id: string; message: string } | null>(null);
+  const failDownload = (media: GeneratedMedia, error: unknown) => {
+    if (shouldOpenDownloadFallback(error)) window.open(media.url, '_blank');
+    else setDownloadError({ id: media.id, message: (error as Error).message });
+  };
 
   const handleDownloadPNG = async (media: GeneratedMedia) => {
+    setDownloadError(null);
     try {
-      const response = await fetch(media.url);
-      if (!response.ok) throw new Error(`Download failed (${response.status}).`);
-      const blob = await response.blob();
+      const blob = await fetchMediaBlob(media.url);
       const blobUrl = URL.createObjectURL(blob);
 
       const ext = media.mediaType === 'video' ? 'mp4' : blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png';
@@ -1722,14 +1727,14 @@ export const Gallery: React.FC<GalleryProps> = ({
       setDownloadMenuId(null);
     } catch (error) {
       console.error('Download PNG failed:', error);
-      window.open(media.url, '_blank');
+      failDownload(media, error);
     }
   };
 
   const handleDownloadJPEG = async (media: GeneratedMedia) => {
+    setDownloadError(null);
     try {
-      const response = await fetch(media.url);
-      const blob = await response.blob();
+      const blob = await fetchMediaBlob(media.url);
 
       // Convert to JPEG using canvas
       const img = new Image();
@@ -1775,7 +1780,7 @@ export const Gallery: React.FC<GalleryProps> = ({
       URL.revokeObjectURL(img.src);
     } catch (error) {
       console.error('Download JPEG failed:', error);
-      window.open(media.url, '_blank');
+      failDownload(media, error);
     }
   };
 
@@ -2399,6 +2404,13 @@ export const Gallery: React.FC<GalleryProps> = ({
         </div>
 
         {adminGalleryBanner}
+
+        {downloadError && !selectedMedia && (
+          <div role="alert" className="flex items-center gap-2 border-b border-red-400/20 bg-[#25151d] px-4 py-2 text-xs text-red-200 sm:px-6">
+            <span>{downloadError.message}</span>
+            <button type="button" onClick={() => setDownloadError(null)} aria-label="Dismiss download error" className="ml-auto p-1"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
 
         {!isReadOnly && (activeDrag || isMoving || moveError) && (
           <div
@@ -3468,6 +3480,7 @@ export const Gallery: React.FC<GalleryProps> = ({
                   <button onClick={(e) => handleDownloadClick(e, selectedMedia.id)} className="py-3 bg-gray-800 text-gray-200 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-700 transition-colors border border-gray-700 font-medium"><Download className="w-4 h-4" /> Download</button>
                 )}
               </div>
+              {downloadError?.id === selectedMedia.id && <p role="alert" className="text-xs text-red-300">{downloadError.message}</p>}
 
               {!isReadOnly && <div className="grid grid-cols-2 gap-3">
                 <button
