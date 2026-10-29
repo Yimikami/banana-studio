@@ -43,3 +43,9 @@ test('the batch delete success toast names the deleted images and videos', async
     assert.deepEqual(toasts, [message]);
   }
 });
+
+test('an ID shared by two loaded items is counted once', () => {
+  const twins = [{ id: 'temp-1', mediaType: 'image' }, { id: 'temp-1', mediaType: 'image' }];
+  assert.equal(describeBatchDelete(['temp-1'], twins), 'Delete 1 image?');
+  assert.equal(describeMediaCount(['temp-1', 'gone'], twins), '1 image and 1 other item');
+});

@@ -4,9 +4,10 @@ const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** Name a set of gallery items, e.g. "2 images and 1 video". */
 export const describeMediaCount = (ids: Iterable<string>, media: GeneratedMedia[]): string => {
-  const selected = new Set(ids);
+  const selected = new Set(ids), counted = new Set<string>();
   let images = 0, videos = 0;
-  for (const item of media) if (selected.has(item.id)) item.mediaType === 'video' ? videos++ : images++;
+  // Two placeholders made in the same millisecond can share an ID; count it once.
+  for (const item of media) if (selected.has(item.id) && !counted.has(item.id)) { counted.add(item.id); item.mediaType === 'video' ? videos++ : images++; }
   // Selected IDs the loaded list no longer contains are still deleted.
   const other = selected.size - images - videos;
   const parts = [images && count(images, 'image'), videos && count(videos, 'video'), other && count(other, other === selected.size ? 'item' : 'other item')].filter(Boolean);
