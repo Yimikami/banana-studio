@@ -114,7 +114,7 @@ test('a video that is not deleted is still saved and completed', async () => {
 const ps = src.indexOf('      const pendingSaved=await createPendingVideo(videoId,'), pe = src.indexOf('      const progressToastId = toast.loading(', ps);
 const submit = transformSync(`async () => {\n${src.slice(ps, pe)}\nreturn 'submitted'; }`, { loader: 'ts' }).code.trim().replace(/;$/, '');
 const createRow = async deleteDuringCreate => {
-  const deleted = new Set(), removed = []; let active = 1;
+  const deleted = new Set(), removed = []; let active = 1, heartbeats = 0;
   const env = {
     videoId: 'vid1', config: { prompt: 'p' }, DEFAULT_VIDEO_MODEL: 'm', requestedVideoAspectRatio: '16:9', requestedVideoDuration: 5, effectiveVideoPromptExpansionMode: 'off',
     h3MaxMode: undefined, currentFolderId: null, genStart: 0, placeholder: { id: 'vid1' },
@@ -122,12 +122,14 @@ const createRow = async deleteDuringCreate => {
     createPendingVideo: async () => { if (deleteDuringCreate) deleted.add('vid1'); return true; },
     deletedMediaIdsRef: { current: deleted }, deleteImage: async media => { removed.push(media.id); },
     setGeneratedMedia() {}, setActiveRequests: f => { active = f(active); }, toast: { error() {}, loading: () => 't' },
+    // The submission heartbeat must not start for a video that is not submitted.
+    setInterval: () => { heartbeats++; return 0; }, refreshVideoSubmission: async () => true, VIDEO_SUBMISSION_HEARTBEAT_INTERVAL_MS: 15_000,
   };
   const outcome = await new Function(...Object.keys(env), `return (${submit})();`)(...Object.values(env));
-  return { outcome: outcome ?? 'stopped', removed, active };
+  return { outcome: outcome ?? 'stopped', removed, active, heartbeats };
 };
 
 test('a video deleted while its first row is created removes that row and is never submitted', async () => {
-  assert.deepEqual(await createRow(true), { outcome: 'stopped', removed: ['vid1'], active: 0 });
-  assert.deepEqual(await createRow(false), { outcome: 'submitted', removed: [], active: 1 });
+  assert.deepEqual(await createRow(true), { outcome: 'stopped', removed: ['vid1'], active: 0, heartbeats: 0 });
+  assert.deepEqual(await createRow(false), { outcome: 'submitted', removed: [], active: 1, heartbeats: 1 });
 });
