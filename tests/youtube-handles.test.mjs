@@ -36,3 +36,11 @@ test('ASCII and malformed inputs keep their current handling', async () => {
   assert.equal(youtube.detectInputType('example.com/@çağrı'), null);
   await assert.rejects(youtube.resolveChannel('@çağ rı'), /Invalid channel/);
 });
+
+test('bare dotted handles use the same channel lookup as their @ forms', async () => {
+  for (const handle of ['banana.studio', 'çağrı.studio', 'e\u0301.channel']) {
+    assert.deepEqual(youtube.detectInputType(handle), { kind: 'channel', raw: handle });
+    assert.deepEqual(await lookup(handle), await lookup(`@${handle}`));
+    assert.deepEqual(await lookup(handle), [{ endpoint: 'channels', forHandle: `@${handle}`, forUsername: undefined }]);
+  }
+});

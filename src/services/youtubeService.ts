@@ -93,7 +93,7 @@ const parseChannelInput = (
   // Handles may use letters and digits of any script, plus _ - . and the middle dot.
   if (/^@[\p{L}\p{M}\p{N}_.·-]+$/u.test(trimmed))
     return { type: 'handle', value: trimmed };
-  if (/^[\p{L}\p{M}\p{N}_·-]+$/u.test(trimmed))
+  if (/^[\p{L}\p{M}\p{N}_.·-]+$/u.test(trimmed))
     return { type: 'handle', value: `@${trimmed}` };
 
   try {
