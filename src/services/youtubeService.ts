@@ -423,7 +423,9 @@ export const downloadThumbnail = async (url: string, options: { signal?: AbortSi
 // --- Formatters ---
 
 export const formatViewCount = (n: number): string => {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  // Each unit starts where toFixed(1) would round the smaller one up to 1000.0.
+  if (n >= 999_950_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 999_950) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 };
