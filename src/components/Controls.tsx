@@ -1221,8 +1221,8 @@ export const Controls: React.FC<ControlsProps> = ({
       };
       
       try {
-        const saved = await saveReferenceImage(savedImage);
-        setRefGallery(prev => [saved, ...prev]);
+        const saved = await saveReferenceImage(savedImage, refGallery);
+        setRefGallery(prev => prev.some(image => image.id === saved.id) ? prev : [saved, ...prev]);
       } catch (error) { setGenerationError(error instanceof Error ? error.message : 'Could not save reference.'); }
       return;
     }

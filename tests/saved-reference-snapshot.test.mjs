@@ -117,3 +117,13 @@ test('the saved-reference editor publishes the returned snapshot to its parent',
     onSaved: value => { published = value; }, setEditing: value => { editor = value; }, setBusy: value => { busy = value; }, setError: error => { if (error) assert.fail(error); } });
   await save(); assert.deepEqual(published, snapshot); assert.equal(editor, null); assert.equal(busy, false);
 });
+test('saving the same URL-backed composer reference twice does not duplicate its saved row', async t => {
+  setup(t); const mod = { exports: {} }; new Function('module', compiled)(mod);
+  let gallery = [];
+  const render = () => mod.exports({ config: { referenceImages: [{ id: 'ref', data: sourceUrl, mimeType: 'image/png' }] }, refGallery: gallery,
+    saveReferenceImage: service.saveReferenceImage, setRefGallery: update => { gallery = update(gallery); }, setGenerationError: error => assert.fail(error), setIsDraggingToGallery() {} });
+  const event = { preventDefault() {}, dataTransfer: { getData: type => type === 'application/nanogen-ref-id' ? 'ref' : '' } };
+  await render()(event); await render()(event);
+  assert.equal(f.writes, 1);
+  assert.equal(gallery.length, 1);
+});

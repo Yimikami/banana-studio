@@ -2432,7 +2432,7 @@ export const deleteTemplate = async (id: string): Promise<void> => {
 
 // --- Reference Gallery Methods ---
 
-export const saveReferenceImage = async (image: SavedReferenceImage): Promise<SavedReferenceImage> => {
+export const saveReferenceImage = async (image: SavedReferenceImage, existingReferences: readonly SavedReferenceImage[] = []): Promise<SavedReferenceImage> => {
   if (image.canEdit === false) throw new Error('Only the owner can edit this saved reference.');
   const operationUserId = await bindMediaSession();
   if (supabase && !operationUserId) throw new Error('Sign in to save a reference.');
@@ -2445,6 +2445,9 @@ export const saveReferenceImage = async (image: SavedReferenceImage): Promise<Sa
       // whether private or shared. Keep the caller's creative draft untouched.
       if (!image.data.startsWith('data:image/')) image = { ...image, data: await snapshotSavedReference(image.data) };
       await requirePeopleSession(userId);
+      // Creation callers compare the prepared bytes with their visible library.
+      const existing = existingReferences.find(reference => reference.data === image.data);
+      if (existing) return existing;
       const { error } = await supabase.from('reference_images').upsert({
         id: image.id,
         user_id: userId,
