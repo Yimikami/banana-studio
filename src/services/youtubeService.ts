@@ -93,7 +93,9 @@ const parseChannelInput = (
   // Handles may use letters and digits of any script, plus _ - . and the middle dot.
   if (/^@[\p{L}\p{M}\p{N}_.·-]+$/u.test(trimmed))
     return { type: 'handle', value: trimmed };
-  if (/^[\p{L}\p{M}\p{N}_·-]+$/u.test(trimmed))
+  // Known YouTube hostnames are URLs, even without a scheme or path.
+  const youtubeHostname = /(?:^|\.)(?:youtube\.com|youtu\.be)$/i.test(trimmed);
+  if (!youtubeHostname && /^[\p{L}\p{M}\p{N}_.·-]+$/u.test(trimmed))
     return { type: 'handle', value: `@${trimmed}` };
 
   try {
