@@ -129,17 +129,21 @@ export const uploadBlobToPublicUrl = async (
   blob: Blob,
   mimeType?: string,
   prefix = 'asset',
-  fallbackExtension = 'bin'
+  fallbackExtension = 'bin',
+  options?: { expectedUserId?: string; onUploadPath?: (path: string) => void },
 ): Promise<string | null> => {
   if (!supabase) return null;
   try {
     const contentType = mimeType || blob.type || 'application/octet-stream';
     const ext = getStorageExtension(contentType, fallbackExtension);
     const userId = await bindMediaSession();
-    if (!userId) return null;
+    if (!userId || (options?.expectedUserId && userId !== options.expectedUserId)) return null;
     const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
     const path = `${userId}/${safePrefix}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}.${ext}`;
 
+    // Record the attempted path before I/O: an upload or signing error can
+    // still leave bytes in storage that the caller needs to roll back.
+    options?.onUploadPath?.(path);
     const { error } = await supabase.storage.from(MEDIA_BUCKET_NAME).upload(path, blob, {
       contentType,
       cacheControl: '0',
@@ -2330,29 +2334,69 @@ export const moveFolderToFolder = async (folderId: string, targetParentId: strin
 
 // --- Template Methods ---
 
-export const saveTemplate = async (template: Template): Promise<void> => {
+export const saveTemplate = async (template: Template): Promise<Template> => {
   template = { ...template, config: { ...template.config, referenceImages: template.config.referenceImages?.map(withoutLegacyMask) } };
   const operationUserId = await bindMediaSession();
   if (supabase && !operationUserId) throw new Error('Sign in to save a reference.');
-  if (supabase) {
-    try {
-      const userId = operationUserId;
-      if (!userId) throw new Error('Not authenticated');
-      await supabase.from('templates').upsert({
+  const uploadPaths: string[] = [];
+  let templateWriteStarted = false;
+  try {
+    // Prepare sequentially so rollback never races a still-running upload.
+    const referenceAudios: ReferenceAudio[] = [];
+    for (const reference of template.config.referenceAudios || []) {
+      if (!reference.url.startsWith('blob:')) { referenceAudios.push(reference); continue; }
+      const response = await fetch(reference.url);
+      if (!response.ok) throw new Error('Template audio could not be read. Attach the clip again.');
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('Template audio is empty. Attach the clip again.');
+      if (await bindMediaSession() !== operationUserId) throw new Error('The template account changed.');
+      const url = await uploadBlobToPublicUrl(blob, reference.mimeType || blob.type, 'template_audio', 'bin', {
+        expectedUserId: operationUserId || undefined,
+        onUploadPath: path => uploadPaths.push(path),
+      });
+      if (await bindMediaSession() !== operationUserId) throw new Error('The template account changed.');
+      if (!url) throw new Error('Template audio could not be uploaded. Your draft is unchanged; try again.');
+      referenceAudios.push({ ...reference, url: persistMediaReference(url)! });
+    }
+    if (template.config.referenceAudios) template = { ...template, config: { ...template.config, referenceAudios } };
+
+    if (supabase) {
+      templateWriteStarted = true;
+      const { error } = await supabase.from('templates').upsert({
         id: template.id,
-        user_id: userId,
+        user_id: operationUserId,
         name: template.name,
         config: template.config,
         created_at: template.createdAt
       });
-    } catch (e) { }
-  }
+      if (error) {
+        // A lost acknowledgement may hide a committed template. Only an
+        // known transaction-rejection classes prove its inputs are safe to
+        // remove. Connection errors (08) and transport codes stay ambiguous.
+        if (/^(?:22|23|28|40|42|44)[0-9A-Z]{3}$/.test(error.code || '')) templateWriteStarted = false;
+        throw new Error(`Template could not be saved: ${error.message}`);
+      }
+    }
 
-  try {
-    const db = await openDB(operationUserId);
-    const tx = db.transaction(TEMPLATE_STORE_NAME, 'readwrite');
-    tx.objectStore(TEMPLATE_STORE_NAME).put(template);
-  } catch (error) { }
+    try {
+      const db = await openDB(operationUserId);
+      const tx = db.transaction(TEMPLATE_STORE_NAME, 'readwrite');
+      tx.objectStore(TEMPLATE_STORE_NAME).put(template);
+    } catch (error) { }
+    return template;
+  } catch (error) {
+    if (!templateWriteStarted && uploadPaths.length) {
+      try {
+        if (await bindMediaSession() !== operationUserId) {
+          console.warn('Uncommitted template audio retained because the account changed.');
+        } else {
+          const { error: cleanupError } = await supabase.storage.from(MEDIA_BUCKET_NAME).remove(uploadPaths);
+          if (cleanupError) console.warn('Uncommitted template audio could not be removed.');
+        }
+      } catch { console.warn('Uncommitted template audio could not be removed.'); }
+    }
+    throw error;
+  }
 };
 
 export const getTemplates = async (): Promise<Template[]> => {
