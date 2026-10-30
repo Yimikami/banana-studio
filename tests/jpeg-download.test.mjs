@@ -9,7 +9,7 @@ const start = source.indexOf('  const handleDownloadJPEG = async');
 const end = source.indexOf('  const handleDownloadClick', start);
 assert.ok(start >= 0 && end > start);
 const compiled = transformSync(`module.exports = env => {
-  const { fetchMediaBlob, Image, URL, document, setDownloadError, setDownloadMenuId, failDownload, setTimeout, console } = env;
+  const { fetchMediaBlob, refreshMediaAccessUrl, Image, URL, document, setDownloadError, setDownloadMenuId, failDownload, setTimeout, console } = env;
   ${source.slice(start, end)}
   return handleDownloadJPEG;
 };`, { loader: 'ts', format: 'cjs' }).code;
@@ -27,6 +27,7 @@ const setup = ({ decodeFails = false, contextFails = false } = {}) => {
   new Function('module', compiled)(mod);
   const handler = mod.exports({
     fetchMediaBlob: async () => new Blob(['source'], { type: 'image/png' }),
+    refreshMediaAccessUrl: async url => url,
     Image: class {
       naturalWidth = 640;
       naturalHeight = 480;
