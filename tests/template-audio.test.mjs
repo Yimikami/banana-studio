@@ -206,14 +206,22 @@ for (const failure of ['unreadable', 'empty']) {
   });
 }
 
-test('an account change after upload rolls back the original owner path', async t => {
+test('an account change skips cleanup with new credentials and reports retained files', async t => {
   setup(t);
   f.afterUpload = async () => { f.user = 'user-2'; };
+  const from = f.client.storage.from;
+  t.mock.method(f.client.storage, 'from', bucket => ({ ...from(bucket), remove: async paths => {
+    // Model owner-scoped deletion: account 2 cannot remove account 1's audio.
+    f.removed.push(...paths);
+    return { error: { message: 'Permission denied' } };
+  } }));
+  const warn = t.mock.method(console, 'warn', () => {});
   await assert.rejects(saveTemplate(twoClips(t)), /account/i);
-  assert.equal(f.uploads.size, 0);
+  assert.equal(f.uploads.size, 1);
+  assert.ok([...f.uploads.keys()].every(path => path.startsWith('user-1/')));
   assert.deepEqual(f.rows, []);
-  assert.ok(f.removed.length > 0);
-  assert.ok(f.removed.every(path => path.startsWith('user-1/')));
+  assert.deepEqual(f.removed, []);
+  assert.ok(warn.mock.calls.some(call => /retained.*account changed/i.test(call.arguments[0])));
 });
 
 test('cleanup failure preserves the preparation error and reports the unsuccessful cleanup', async t => {

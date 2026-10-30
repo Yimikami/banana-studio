@@ -2361,8 +2361,12 @@ export const saveTemplate = async (template: Template): Promise<Template> => {
   } catch (error) {
     if (!templateWriteStarted && uploadPaths.length) {
       try {
-        const { error: cleanupError } = await supabase.storage.from(MEDIA_BUCKET_NAME).remove(uploadPaths);
-        if (cleanupError) console.warn('Uncommitted template audio could not be removed.');
+        if (await bindMediaSession() !== operationUserId) {
+          console.warn('Uncommitted template audio retained because the account changed.');
+        } else {
+          const { error: cleanupError } = await supabase.storage.from(MEDIA_BUCKET_NAME).remove(uploadPaths);
+          if (cleanupError) console.warn('Uncommitted template audio could not be removed.');
+        }
       } catch { console.warn('Uncommitted template audio could not be removed.'); }
     }
     throw error;
