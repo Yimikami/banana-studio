@@ -2446,8 +2446,14 @@ export const saveReferenceImage = async (image: SavedReferenceImage, existingRef
       if (!image.data.startsWith('data:image/')) image = { ...image, data: await snapshotSavedReference(image.data) };
       await requirePeopleSession(userId);
       // Creation callers compare the prepared bytes with their visible library.
-      const existing = existingReferences.find(reference => reference.data === image.data);
-      if (existing) return existing;
+      const existing = existingReferences.find(reference => reference.canEdit === true && reference.data === image.data);
+      if (existing) {
+        const { data: saved, error } = await supabase.from('reference_images').select('id,data')
+          .eq('id', existing.id).eq('user_id', userId).maybeSingle();
+        if (error) throw new Error('The saved reference could not be checked.', { cause: error });
+        await requirePeopleSession(userId);
+        if (saved?.data === image.data) return existing;
+      }
       const { error } = await supabase.from('reference_images').upsert({
         id: image.id,
         user_id: userId,
@@ -2466,7 +2472,7 @@ export const saveReferenceImage = async (image: SavedReferenceImage, existingRef
   }
 
   // Shared library access must be rechecked against RLS, never cached offline.
-  if (supabase) return image;
+  if (supabase) return { ...image, canEdit: true };
   if (image.isShared) throw new Error('Sign in to share a saved reference.');
   try {
     const db = await openDB(operationUserId);
