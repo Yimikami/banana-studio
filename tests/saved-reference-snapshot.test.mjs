@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { WorkspaceQuery } from '../desktop/shared/query.mjs';
 
 const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64');
-const f = { user: 'owner', references: [], files: new Map(), writes: 0, readFailure: false, afterFetch: null };
+const f = { user: 'owner', references: [], files: new Map(), writes: 0, reads: 0, readFailure: false, afterFetch: null };
 const origin = 'https://storage.invalid';
 const sourcePath = 'owner/source.png';
 const sourceUrl = `${origin}/storage/v1/object/authenticated/media/${sourcePath}`;
@@ -14,7 +14,10 @@ f.client = {
   from(table) { return new WorkspaceQuery(async plan => {
     if (plan.operation === 'upsert') { f.writes++; f.references = [structuredClone(plan.value)]; return { error: null }; }
     if (plan.operation === 'delete') return { error: null };
-    assert.equal(table, 'reference_images'); return { data: structuredClone(f.references), error: null };
+    assert.equal(table, 'reference_images');
+    assert.ok(++f.reads < 20, 'library reads must reach an empty page');
+    const [from, to] = plan.range || [0, undefined];
+    return { data: structuredClone(f.references.slice(from, to === undefined ? undefined : to + 1)), error: null };
   }, table); },
   storage: { from: () => ({
     remove: async paths => { paths.forEach(path => f.files.delete(path)); return { error: null }; },
@@ -30,7 +33,7 @@ const bundle = await build({ stdin: { contents: "export { saveReferenceImage, ge
 const service = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 const image = () => ({ id: 'saved', data: sourceUrl, mimeType: 'image/png', createdAt: 1 });
 function setup(t) {
-  f.references = []; f.files = new Map([[sourcePath, bytes]]); f.user = 'owner'; f.writes = 0; f.readFailure = false; f.afterFetch = null;
+  f.references = []; f.files = new Map([[sourcePath, bytes]]); f.user = 'owner'; f.writes = 0; f.reads = 0; f.readFailure = false; f.afterFetch = null;
   const nativeFetch = globalThis.fetch;
   t.mock.method(globalThis, 'fetch', async url => {
     if (url.startsWith('data:')) return nativeFetch(url);
