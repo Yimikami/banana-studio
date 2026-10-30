@@ -908,8 +908,9 @@ const selectPagedGenerationRows = async (
     rows.push(...data);
     await onProgress?.([...rows]);
 
-    if (data.length < pageSize) break;
-    from += pageSize;
+    // Data API max_rows may be lower than our requested page size.
+    // Only an empty page proves exhaustion; advance by rows actually received.
+    from += data.length;
   }
 
   return { data: rows, error: null };
@@ -1904,16 +1905,20 @@ export const clearImages = async (): Promise<void> => {
   if (supabase) {
     const userId = await bindMediaSession();
     if (!userId) throw new Error('Not authenticated');
-    const { data: rows, error: selectError } = await supabase.from('generations')
-      .select('id, storage_path, thumbnail_path, url, type').eq('user_id', userId);
+    const { data: rows, error: selectError } = await selectPagedGenerationRows(
+      userId, 'id, created_at, storage_path, thumbnail_path, url, type',
+    );
     if (selectError) {
       throw new Error(`DB list before clear failed: ${selectError.message}`);
     }
 
-    if (rows && rows.length > 0) {
-      const ids = rows.map((r: any) => r.id);
-      const filenames = rows.map((row: any) => row.storage_path || extractStoragePathFromUrl(row.url) || `${userId}/${row.id}.${row.type === 'video' ? 'mp4' : ORIGINAL_EXTENSION}`);
-      const thumbFilenames = rows.map((row: any) => row.thumbnail_path || `${userId}/${getThumbnailStoragePath(row.id)}`);
+    // Read the complete snapshot before deleting. Bound each storage request
+    // to 1,000 paths and avoid a single oversized ID filter for large galleries.
+    for (let offset = 0; rows && offset < rows.length; offset += 500) {
+      const batch = rows.slice(offset, offset + 500);
+      const ids = batch.map((r: any) => r.id);
+      const filenames = batch.map((row: any) => row.storage_path || extractStoragePathFromUrl(row.url) || `${userId}/${row.id}.${row.type === 'video' ? 'mp4' : ORIGINAL_EXTENSION}`);
+      const thumbFilenames = batch.map((row: any) => row.thumbnail_path || `${userId}/${getThumbnailStoragePath(row.id)}`);
       const { error: storageError } = await supabase.storage.from(MEDIA_BUCKET_NAME).remove([...filenames, ...thumbFilenames]);
       if (storageError) {
         console.warn("Storage clear failed (some files may already be gone):", storageError);
