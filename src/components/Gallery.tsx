@@ -1714,7 +1714,7 @@ export const Gallery: React.FC<GalleryProps> = ({
   const handleDownloadPNG = async (media: GeneratedMedia) => {
     setDownloadError(null);
     try {
-      const downloadUrl = media.mediaType === 'video' ? media.url : await refreshMediaAccessUrl(media.url, false);
+      const downloadUrl = media.mediaType === 'video' ? media.url : await refreshMediaAccessUrl(media.url, false).catch(() => media.url);
       const blob = await fetchMediaBlob(downloadUrl);
       const blobUrl = URL.createObjectURL(blob);
 
@@ -1738,7 +1738,7 @@ export const Gallery: React.FC<GalleryProps> = ({
     setDownloadError(null);
     let sourceUrl: string | undefined;
     try {
-      const downloadUrl = media.mediaType === 'video' ? media.url : await refreshMediaAccessUrl(media.url, false);
+      const downloadUrl = media.mediaType === 'video' ? media.url : await refreshMediaAccessUrl(media.url, false).catch(() => media.url);
       const blob = await fetchMediaBlob(downloadUrl);
       sourceUrl = URL.createObjectURL(blob);
 

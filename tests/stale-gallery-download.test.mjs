@@ -25,7 +25,7 @@ const compiled = transformSync(`module.exports = env => {
   return { handleDownloadPNG, handleDownloadJPEG };
 };`, { loader: 'ts', format: 'cjs' }).code;
 
-const createDownloads = () => {
+const createDownloads = ({ failRefresh = false } = {}) => {
   const fetched = [], refreshed = [], errors = [], downloads = [], revoked = [];
   let objectUrl = 0;
   const context = { fillStyle: '', fillRect() {}, drawImage() {} };
@@ -42,6 +42,7 @@ const createDownloads = () => {
     },
     refreshMediaAccessUrl: async url => {
       refreshed.push(url);
+      if (failRefresh) throw new Error('Signed URL renewal temporarily failed');
       return url.replace('token=expired', 'token=renewed');
     },
     Image: class {
@@ -91,4 +92,50 @@ test('single-image PNG and JPEG downloads refresh expired signed URLs first', as
   assert.deepEqual(ui.fetched, [pngUrl.replace('expired', 'renewed'), jpegUrl.replace('expired', 'renewed')]);
   assert.deepEqual(ui.errors, []);
   assert.deepEqual(ui.downloads.map(download => download.name), ['banana-image.png', 'banana-photo.jpg']);
+});
+
+test('single-image downloads use the original URL if renewal fails but that URL still works', async t => {
+  const pngUrl = 'https://project.example/storage/v1/object/sign/media/user/image.png?token=current';
+  const jpegUrl = 'https://project.example/storage/v1/object/sign/media/user/photo.jpg?token=current';
+  const responses = new Map([
+    [pngUrl, new Response(new Blob(['png'], { type: 'image/png' }))],
+    [jpegUrl, new Response(new Blob(['png'], { type: 'image/png' }))],
+  ]);
+  t.mock.method(globalThis, 'fetch', async url => {
+    const response = responses.get(String(url));
+    assert.ok(response, `unexpected download URL: ${url}`);
+    return response;
+  });
+  const ui = createDownloads({ failRefresh: true });
+
+  await ui.handleDownloadPNG({ id: 'image', url: pngUrl, mediaType: 'image' });
+  await ui.handleDownloadJPEG({ id: 'photo', url: jpegUrl, mediaType: 'image' });
+
+  assert.deepEqual(ui.refreshed, [pngUrl, jpegUrl]);
+  assert.deepEqual(ui.fetched, [pngUrl, jpegUrl]);
+  assert.deepEqual(ui.errors, []);
+  assert.deepEqual(ui.downloads.map(download => download.name), ['banana-image.png', 'banana-photo.jpg']);
+});
+
+test('single-image downloads keep the download error when both renewal and the original URL fail', async t => {
+  const pngUrl = 'https://project.example/storage/v1/object/sign/media/user/image.png?token=expired';
+  const jpegUrl = 'https://project.example/storage/v1/object/sign/media/user/photo.jpg?token=expired';
+  const responses = new Map([
+    [pngUrl, new Response('expired', { status: 400 })],
+    [jpegUrl, new Response('expired', { status: 400 })],
+  ]);
+  t.mock.method(globalThis, 'fetch', async url => {
+    const response = responses.get(String(url));
+    assert.ok(response, `unexpected download URL: ${url}`);
+    return response;
+  });
+  const ui = createDownloads({ failRefresh: true });
+
+  await ui.handleDownloadPNG({ id: 'image', url: pngUrl, mediaType: 'image' });
+  await ui.handleDownloadJPEG({ id: 'photo', url: jpegUrl, mediaType: 'image' });
+
+  assert.deepEqual(ui.fetched, [pngUrl, jpegUrl]);
+  assert.equal(ui.errors.length, 2);
+  assert.ok(ui.errors.every(error => error.message === 'Download failed (400). Reload the gallery and try again.'));
+  assert.deepEqual(ui.downloads, []);
 });
