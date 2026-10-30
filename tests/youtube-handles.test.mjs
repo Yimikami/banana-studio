@@ -44,3 +44,13 @@ test('bare dotted handles use the same channel lookup as their @ forms', async (
     assert.deepEqual(await lookup(handle), [{ endpoint: 'channels', forHandle: `@${handle}`, forUsername: undefined }]);
   }
 });
+
+test('bare YouTube hostnames stay on the URL path without querying a handle', async () => {
+  for (const host of ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'YouTube.COM', 'youtu.be', 'www.youtu.be']) {
+    lookups.length = 0;
+    assert.equal(youtube.detectInputType(host), null, host);
+    await assert.rejects(youtube.resolveChannel(host), /Invalid channel/, host);
+    assert.deepEqual(lookups, [], host);
+  }
+  assert.deepEqual(await lookup('@youtube.com'), [{ endpoint: 'channels', forHandle: '@youtube.com', forUsername: undefined }]);
+});
