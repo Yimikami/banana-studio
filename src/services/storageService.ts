@@ -2432,7 +2432,7 @@ export const deleteTemplate = async (id: string): Promise<void> => {
 
 // --- Reference Gallery Methods ---
 
-export const saveReferenceImage = async (image: SavedReferenceImage): Promise<void> => {
+export const saveReferenceImage = async (image: SavedReferenceImage): Promise<SavedReferenceImage> => {
   if (image.canEdit === false) throw new Error('Only the owner can edit this saved reference.');
   const operationUserId = await bindMediaSession();
   if (supabase && !operationUserId) throw new Error('Sign in to save a reference.');
@@ -2441,14 +2441,14 @@ export const saveReferenceImage = async (image: SavedReferenceImage): Promise<vo
       const userId = operationUserId;
       if (!userId) throw new Error('Not authenticated');
 
-      // Shared inputs are independent snapshots, never another user's private URL.
-      let data = image.data;
-      if (image.isShared && !data.startsWith('data:image/')) data = await snapshotSavedReference(data);
+      // Saved inputs outlive their source gallery items and temporary URLs,
+      // whether private or shared. Keep the caller's creative draft untouched.
+      if (!image.data.startsWith('data:image/')) image = { ...image, data: await snapshotSavedReference(image.data) };
       await requirePeopleSession(userId);
       const { error } = await supabase.from('reference_images').upsert({
         id: image.id,
         user_id: userId,
-        data: persistMediaReference(data),
+        data: persistMediaReference(image.data),
         is_shared: image.isShared === true,
         mime_type: image.mimeType,
         name: image.name || null,
@@ -2463,7 +2463,7 @@ export const saveReferenceImage = async (image: SavedReferenceImage): Promise<vo
   }
 
   // Shared library access must be rechecked against RLS, never cached offline.
-  if (supabase) return;
+  if (supabase) return image;
   if (image.isShared) throw new Error('Sign in to share a saved reference.');
   try {
     const db = await openDB(operationUserId);
@@ -2472,6 +2472,7 @@ export const saveReferenceImage = async (image: SavedReferenceImage): Promise<vo
   } catch (error) {
     console.error('Failed to save reference image to IDB:', error);
   }
+  return image;
 };
 
 export const getReferenceGallery = async (): Promise<SavedReferenceImage[]> => {
