@@ -19,7 +19,8 @@ const helpers = await import('data:text/javascript;base64,' + Buffer.from(compil
 const code = transformSync(`module.exports = env => {
   const { config, onChange, undoStack, setUndoStack, setEnhanceError, refInputRef,
     getPersonDefinitions, getPersonId, removeH3MaxReferenceImages, isH3VideoConfig,
-    h3PromptSupported, preEnhancePrompt, maxReferenceVideos, maxReferenceAudios, setAttachmentError, getH3MaxUIState } = env;
+    h3PromptSupported, preEnhancePrompt, maxReferenceVideos, maxReferenceAudios, setAttachmentError, getH3MaxUIState,
+    insertUploadDraftRef, insertSourceUploadRef } = env;
   ${source.slice(start, end)}
   return { clear: handleClearAll, undo: handleUndo, remove: handleRemoveImage, revert: handleRevertEnhancedPrompt };
 };`, { loader: 'ts', format: 'cjs' }).code;
@@ -29,10 +30,13 @@ new Function('module', code)(mod);
 function scenario(initial) {
   let config = structuredClone(initial), undoStack = [];
   const errors = [], limits = { videos: 4, audios: 3 };
+  // Also allow the pending upload-invalidation change (#168) to clear its refs.
+  const insertUploadDraftRef = { current: { token: {} } }, insertSourceUploadRef = { current: null };
   const api = () => mod.exports({ ...helpers, config, undoStack,
     onChange: update => { config = typeof update === 'function' ? update(config) : update; },
     setUndoStack: update => { undoStack = update(undoStack); },
     setEnhanceError() {}, refInputRef: { current: null },
+    insertUploadDraftRef, insertSourceUploadRef,
     maxReferenceVideos: limits.videos, maxReferenceAudios: limits.audios, setAttachmentError: error => errors.push(error),
     isH3VideoConfig: config.mode === 'video' && config.videoModel === 'minimax-h3',
     h3PromptSupported: true, preEnhancePrompt: config.originalPrompt ?? null,
