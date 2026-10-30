@@ -26,6 +26,7 @@ import { FolderPreview } from './FolderPreview';
 import { buildFolderPreviewIndex } from './folderPreviews';
 import { describeBatchDelete } from '../lib/gallery/deleteConfirmation';
 import { groupBrainstormImages } from './galleryOrdering';
+import { LazyDialogErrorBoundary } from './LazyDialogErrorBoundary';
 import { fetchMediaBlob, shouldOpenDownloadFallback } from '../lib/gallery/mediaDownload';
 import { getGalleryAspectRatio, getGalleryCardStyle, getGallerySwipeDirection, isGalleryDismissSwipe, getNavigableGalleryMedia, type GallerySwipeStart } from './galleryPresentation';
 import { GALLERY_DRAG_TYPE, GALLERY_DRAG_ID, GALLERY_DRAG_MEDIA_IDS, getDraggedMediaIds, readGalleryDragPayload, getMediaIdsForMove, canMoveGalleryFolder, type GalleryDragPayload } from './galleryDragDrop';
@@ -34,7 +35,7 @@ const GalleryImageEditor = React.lazy(() => import('./GalleryImageEditor').then(
 const ImageCompareDialog = React.lazy(() => import('./ImageCompareDialog').then(module => ({ default: module.ImageCompareDialog })));
 const YouTubePreviewDialog = React.lazy(() => import('./YouTubePreviewDialog').then(module => ({ default: module.YouTubePreviewDialog })));
 const FolderShareDialog = React.lazy(() => import('./FolderShareDialog').then(module => ({ default: module.FolderShareDialog })));
-const dialogLoading = <div role="status" className="fixed inset-0 z-[350] grid place-items-center bg-black/70 text-sm text-gray-200 backdrop-blur-sm"><span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading dialog…</span></div>;
+const dialogLoading = <div role="status" className="fixed inset-0 z-[350] grid place-items-center bg-black/70 text-sm text-gray-200 backdrop-blur-sm"><span className="flex items-center gap-2"><Loader2 className="h-4 w-4 motion-safe:animate-spin" />Loading dialog…</span></div>;
 
 // --- Constants ---
 const ITEMS_PER_PAGE = 48;
@@ -1945,7 +1946,7 @@ export const Gallery: React.FC<GalleryProps> = ({
     >
 
       <HelpCenter open={isHelpCenterOpen} onClose={() => setIsHelpCenterOpen(false)} />
-      {sharingFolder && !isReadOnly && <React.Suspense fallback={dialogLoading}><FolderShareDialog key={sharingFolder.id} folder={sharingFolder} onClose={() => setSharingFolder(null)} /></React.Suspense>}
+      {sharingFolder && !isReadOnly && <LazyDialogErrorBoundary><React.Suspense fallback={dialogLoading}><FolderShareDialog key={sharingFolder.id} folder={sharingFolder} onClose={() => setSharingFolder(null)} /></React.Suspense></LazyDialogErrorBoundary>}
 
       {isCreatingFolder && !isReadOnly && (
         <div
@@ -3005,16 +3006,16 @@ export const Gallery: React.FC<GalleryProps> = ({
         </div>
       )}
 
-      {comparisonIds && <React.Suspense fallback={dialogLoading}><ImageCompareDialog images={comparisonImages} onClose={closeComparison}
-        onToggleFavorite={onToggleFavorite} isReadOnly={isReadOnly} loadDetails={loadComparisonDetails} refreshSource={refreshComparisonSource} /></React.Suspense>}
+      {comparisonIds && <LazyDialogErrorBoundary><React.Suspense fallback={dialogLoading}><ImageCompareDialog images={comparisonImages} onClose={closeComparison}
+        onToggleFavorite={onToggleFavorite} isReadOnly={isReadOnly} loadDetails={loadComparisonDetails} refreshSource={refreshComparisonSource} /></React.Suspense></LazyDialogErrorBoundary>}
 
-      {isYouTubePreviewOpen && selectedMedia && isComparableImage(selectedMedia) && <React.Suspense fallback={dialogLoading}><YouTubePreviewDialog
+      {isYouTubePreviewOpen && selectedMedia && isComparableImage(selectedMedia) && <LazyDialogErrorBoundary><React.Suspense fallback={dialogLoading}><YouTubePreviewDialog
         media={selectedMedia}
         currentIndex={previewIndex} totalImages={previewImages.length} favoritesOnly={showFavoritesOnly}
         onNavigate={direction => handleNavigate(direction, true)}
         initialTitle={folders.find(folder => folder.id === selectedMedia.folderId)?.name || selectedMedia.referenceImages?.find(ref => ref.youtubeSource?.title)?.youtubeSource?.title || 'Your next video'}
         channelName={galleryOwner?.display_name || userProfile?.display_name}
-        onClose={() => setIsYouTubePreviewOpen(false)} refreshSource={refreshComparisonSource} /></React.Suspense>}
+        onClose={() => setIsYouTubePreviewOpen(false)} refreshSource={refreshComparisonSource} /></React.Suspense></LazyDialogErrorBoundary>}
 
       {/* Detail Modal */}
       {searchDialog}
@@ -3113,9 +3114,11 @@ export const Gallery: React.FC<GalleryProps> = ({
               </div>}
             </> : null}
             {canEditSelectedMedia && (isEditingSelectedMedia || isDetailsVisible) && <div className={`w-full flex shrink-0 flex-col items-center ${isEditingSelectedMedia ? 'md:my-auto' : ''}`} onClick={event => event.stopPropagation()}>
-              <React.Suspense fallback={<div role="status" className="flex items-center gap-2 py-4 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" />Loading edit controls…</div>}>
-                <GalleryImageEditor key={selectedMedia.id} image={selectedMedia} images={images} isEditing={isEditingSelectedMedia} onStart={() => setEditingMediaId(selectedMedia.id)} onGenerate={onEditGenerate!} onClose={() => setEditingMediaId(null)} onEditResult={result => { setSelectedMediaId(result.id); setEditingMediaId(result.id); }} initialTextModel={imageEditTextModel} refreshSource={refreshComparisonSource} />
-              </React.Suspense>
+              <LazyDialogErrorBoundary inline>
+                <React.Suspense fallback={<div role="status" className="flex items-center gap-2 py-4 text-sm text-gray-400"><Loader2 className="h-4 w-4 motion-safe:animate-spin" />Loading edit controls…</div>}>
+                  <GalleryImageEditor key={selectedMedia.id} image={selectedMedia} images={images} isEditing={isEditingSelectedMedia} onStart={() => setEditingMediaId(selectedMedia.id)} onGenerate={onEditGenerate!} onClose={() => setEditingMediaId(null)} onEditResult={result => { setSelectedMediaId(result.id); setEditingMediaId(result.id); }} initialTextModel={imageEditTextModel} refreshSource={refreshComparisonSource} />
+                </React.Suspense>
+              </LazyDialogErrorBoundary>
             </div>}
           </div>
 
