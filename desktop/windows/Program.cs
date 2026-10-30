@@ -52,8 +52,11 @@ internal sealed class StudioWindow : Form
         Controls.Add(web); Controls.Add(status); Controls.Add(menu);
         Shown += async (_, _) =>
         {
-            ApplyWindowBounds(WindowPlacement.Load(WorkspaceProcess.DataDirectory) ?? Bounds);
+            var placement = WindowPlacement.Load(WorkspaceProcess.DataDirectory);
+            ApplyWindowBounds(placement?.Bounds ?? Bounds);
             placementReady = true; CaptureNormalWindowBounds();
+            // Maximize after capturing, so un-maximizing returns to the saved size.
+            if (placement?.Maximized == true) WindowState = FormWindowState.Maximized;
             await StartWorkspace();
         };
         LocationChanged += (_, _) => CaptureNormalWindowBounds();
@@ -62,7 +65,9 @@ internal sealed class StudioWindow : Form
         FormClosing += (_, _) =>
         {
             CaptureNormalWindowBounds();
-            if (placementReady) WindowPlacement.Save(WorkspaceProcess.DataDirectory, normalWindowBounds);
+            var fullScreen = FormBorderStyle == FormBorderStyle.None;
+            var maximized = (fullScreen ? previousState : WindowState) == FormWindowState.Maximized;
+            if (placementReady) WindowPlacement.Save(WorkspaceProcess.DataDirectory, normalWindowBounds, maximized);
         };
         FormClosed += (_, _) => { workspace.Dispose(); web.Dispose(); if (profile != null) { try { Directory.Delete(profile, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } } };
         workspace.Failed += () => { if (!IsDisposed && IsHandleCreated) BeginInvoke(() => ShowFailure("The local workspace stopped. Reopen Banana Studio. Your saved gallery is kept on this PC.")); };
