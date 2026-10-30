@@ -1,3 +1,4 @@
+import { getReferenceImageLimit } from '../lib/images/imageReferences';
 import { useProviderRoute, ProviderRouteControl } from './ProviderRoutingSettings';
 import { seedanceProviderError } from '../lib/video/seedanceProviders';
 import { SavedReferenceImages } from './SavedReferenceImages';
@@ -592,19 +593,7 @@ export const Controls: React.FC<ControlsProps> = ({
     ? (config.videoOperation === 'edit' || config.videoOperation === 'extend' ? 1 : 10)
     : 3;
   const maxReferenceAudios = isH3VideoConfig ? (h3State.available ? h3State.capabilities.audios.max : 0) : config.videoModel === 'seedance-2.5' ? 10 : 3;
-  const seedanceFrameOnly = config.videoModel === 'seedance-2.5'
-    && (config.videoOperation || 'generate') === 'generate'
-    && currentReferenceVideos.length === 0
-    && currentReferenceAudios.length === 0
-    && (config.referenceImages || []).length > 0
-    && (config.referenceImages || []).some(image => image.isFirstFrame || image.isLastFrame);
-  const maxReferenceImages = isH3VideoConfig
-    ? h3State.imageLimit
-    : config.mode === 'video' && config.videoModel === 'seedance-2.5'
-      ? (seedanceFrameOnly ? 2 : 30)
-      // Seedance 2.0 accepts at most 9 reference images (seedanceProviderError, EvoLink).
-      : config.mode === 'video' && config.videoModel === 'seedance-2.0' ? 9
-      : config.mode === 'image' && config.imageModel === SUNBURST_MODEL ? 16 : 14;
+  const maxReferenceImages = getReferenceImageLimit(config);
   // Attachments finish after awaits; they use the limits of the latest committed draft.
   const attachLimitsRef = useRef({ images: maxReferenceImages, audios: maxReferenceAudios, videos: maxReferenceVideos, config });
   useLayoutEffect(() => { attachLimitsRef.current = { images: maxReferenceImages, audios: maxReferenceAudios, videos: maxReferenceVideos, config }; });

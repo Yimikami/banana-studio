@@ -10,7 +10,7 @@ const compiled = await build({ stdin: { contents: `
   import { getActiveImageModel } from './src/types';
   import { mergePersonReferenceInputs } from './src/lib/references/personReferences';
   import { SUNBURST_MODEL } from './src/lib/images/openaiImage';
-  import { getH3MaxUIState } from './src/components/H3MaxSettings';
+  import { getReferenceImageLimit } from './src/lib/images/imageReferences';
   export const apply = (config, template) => {
     let applied, changes = 0; const errors = [];
     const resolveImageModel = getActiveImageModel;
