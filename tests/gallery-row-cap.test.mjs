@@ -4,12 +4,14 @@ import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { WorkspaceQuery } from '../desktop/shared/query.mjs';
 
-const fixture = { rows: [], cap: 2, failureAt: null, removed: [], deleted: [] };
+const fixture = { rows: [], cap: 2, failureAt: null, deleteFailureAt: null, deleteCalls: 0, removed: [], deleted: [] };
 fixture.client = { from(table) {
   assert.equal(table, 'generations');
   return new WorkspaceQuery(async plan => {
     let rows = fixture.rows.filter(row => plan.filters.every(f => f.operator === 'in' ? f.value.includes(row[f.column]) : row[f.column] === f.value));
     if (plan.operation === 'delete') {
+      fixture.deleteCalls++;
+      if (fixture.deleteCalls === fixture.deleteFailureAt) return { data: null, error: { message: 'Deletion unavailable' } };
       const ids = new Set(rows.map(row => row.id));
       fixture.rows = fixture.rows.filter(row => !ids.has(row.id));
       fixture.deleted.push(...ids);
@@ -32,7 +34,7 @@ const bundle = await build({ stdin: { contents: "export { getImagesForUser, clea
 const { getImagesForUser, clearImages } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].text).toString('base64'));
 const row = (id, user_id = 'user-1') => ({ id, user_id, created_at: 1, type: 'image', status: 'completed', url: `https://cdn.invalid/${id}.png`, prompt: id });
 function setup(t, count = 7) {
-  Object.assign(fixture, { rows: [...Array.from({ length: count }, (_, i) => row(`image-${String(i).padStart(4, '0')}`)), row('other', 'user-2')], cap: 2, failureAt: null, removed: [], deleted: [] });
+  Object.assign(fixture, { rows: [...Array.from({ length: count }, (_, i) => row(`image-${String(i).padStart(4, '0')}`)), row('other', 'user-2')], cap: 2, failureAt: null, deleteFailureAt: null, deleteCalls: 0, removed: [], deleted: [] });
   const old = globalThis.localStorage;
   globalThis.localStorage = { getItem: () => null, removeItem() {} };
   t.after(() => { if (old === undefined) delete globalThis.localStorage; else globalThis.localStorage = old; });
@@ -87,4 +89,19 @@ test('an empty gallery does not remove any storage objects', async t => {
   assert.deepEqual(await getImagesForUser('user-1'), []);
   assert.deepEqual(fixture.rows.map(row => row.id), ['other']);
   assert.deepEqual(fixture.removed, []);
+});
+
+test('a later deletion failure rejects and retry clears the remaining owned rows', async t => {
+  setup(t, 1201);
+  fixture.cap = 1000;
+  fixture.deleteFailureAt = 2;
+  await assert.rejects(clearImages(), /Deletion unavailable/);
+  assert.equal(fixture.deleted.length, 500);
+  assert.equal(fixture.rows.filter(row => row.user_id === 'user-1').length, 701);
+  assert.ok(fixture.rows.some(row => row.id === 'other'));
+  fixture.deleteFailureAt = null;
+  await clearImages();
+  assert.deepEqual(fixture.rows.map(row => row.id), ['other']);
+  assert.equal(fixture.deleted.length, 1201);
+  assert.equal(new Set(fixture.deleted).size, 1201);
 });
