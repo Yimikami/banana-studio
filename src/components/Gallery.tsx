@@ -1714,7 +1714,8 @@ export const Gallery: React.FC<GalleryProps> = ({
   const handleDownloadPNG = async (media: GeneratedMedia) => {
     setDownloadError(null);
     try {
-      const blob = await fetchMediaBlob(media.url);
+      const downloadUrl = media.mediaType === 'video' ? media.url : await refreshMediaAccessUrl(media.url, false);
+      const blob = await fetchMediaBlob(downloadUrl);
       const blobUrl = URL.createObjectURL(blob);
 
       const ext = media.mediaType === 'video' ? 'mp4' : blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png';
@@ -1737,7 +1738,8 @@ export const Gallery: React.FC<GalleryProps> = ({
     setDownloadError(null);
     let sourceUrl: string | undefined;
     try {
-      const blob = await fetchMediaBlob(media.url);
+      const downloadUrl = media.mediaType === 'video' ? media.url : await refreshMediaAccessUrl(media.url, false);
+      const blob = await fetchMediaBlob(downloadUrl);
       sourceUrl = URL.createObjectURL(blob);
 
       // Convert to JPEG using canvas
