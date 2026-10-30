@@ -3,6 +3,7 @@ import { WorkspaceBar } from './components/WorkspaceBar';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Controls } from './components/Controls';
+import { getH3MaxUIState } from './components/H3MaxSettings';
 import { Gallery } from './components/Gallery';
 import { HistoryPanel } from './components/HistoryPanel';
 import { AuthBoundary } from './components/AuthBoundary';
@@ -1761,7 +1762,15 @@ const AuthorizedWorkspace: React.FC<{
     try {
       const imageModel = resolveImageModel(template.config.imageModel ?? config.imageModel);
       const merged = mergePersonReferenceInputs(template.config.referenceImages || [], config.referenceImages || [], template.config.prompt, config.prompt, template.config.personGroups, config.personGroups);
-      const limit = imageModel === SUNBURST_MODEL ? 16 : 14;
+      const target = { ...template.config, imageModel, referenceImages: merged.references };
+      const frameOnly = target.videoModel === 'seedance-2.5' && (target.videoOperation || 'generate') === 'generate'
+        && !target.referenceVideos?.length && !target.referenceAudios?.length
+        && merged.references.some(image => image.isFirstFrame || image.isLastFrame);
+      // Validate the resulting template's active model/action, as the composer does.
+      const limit = target.mode === 'video' && target.videoModel === 'minimax-h3' ? getH3MaxUIState(target).imageLimit
+        : target.mode === 'video' && target.videoModel === 'seedance-2.5' ? (frameOnly ? 2 : 30)
+        : target.mode === 'video' && target.videoModel === 'seedance-2.0' ? 9
+        : target.mode === 'image' && imageModel === SUNBURST_MODEL ? 16 : 14;
       if (merged.references.length > limit) throw new Error(`Bu şablonla toplam ${merged.references.length} referans oluyor. Önce referans sayısını ${limit} veya altına indir.`);
       recreateLoadIdRef.current += 1;
       recreateLoadingRef.current = null;
