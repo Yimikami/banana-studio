@@ -9,9 +9,7 @@ import { isMobilePhotoDevice, preparePhotosForSharing, sharePreparedPhotos } fro
 import { Link as ShareLink, Download, X, ZoomIn, ImagePlus, Grid3X3, Sparkles, Info, Copy, Check, Trash2, Image as ImageIcon, ChevronLeft, ChevronRight, ChevronDown, RotateCcw, RefreshCw, FolderPlus, Folder as FolderIcon, FolderOpen, ArrowLeft, MoreVertical, MousePointer2, Scan, Ratio, Layers, Pencil, Heart, MoreHorizontal, AlertCircle, Shuffle, Bell, CheckCircle, AlertTriangle, Loader2, Play, Pause, Video, Film, Clock, Volume2, VolumeX, CircleQuestionMark, ShieldCheck, Maximize2, Rewind, FastForward, Minus, Plus, Search, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { AdminUserSummary, GeneratedMedia, Folder, ReferenceImage, UserProfile, DEFAULT_IMAGE_MODEL, getImageModelLabel, IMAGE_COST_PER_GEN, estimateImageCost, type GenerationConfig, type TextModelId } from '../types';
 import { getImageById, saveFolder, getFolders, renameFolder, refreshMediaAccessUrl, type DeleteFolderResult } from '../services/storageService';
-import { ImageCompareDialog } from './ImageCompareDialog';
 import { GallerySearchDialog } from './GallerySearchDialog';
-import { GalleryImageEditor } from './GalleryImageEditor';
 import { ImageEditComparison } from './ImageEditComparison';
 import { useSavedImageEditSource } from './useSavedImageEditSource';
 import { ImageEditDetails, PromptPreparationDetails } from './GenerationDetails';
@@ -21,18 +19,22 @@ import { DetailImage } from './GalleryDetailImage';
 import { buildGalleryFolderStats } from './galleryFolderStats';
 import type { GallerySearchEntry } from './gallerySearch';
 import { getComparisonSelection, isComparableImage } from './imageComparison';
-import { YouTubePreviewDialog } from './YouTubePreviewDialog';
 import { Toast } from './Toast';
 import { HelpCenter } from './HelpCenter';
 import { collectBatchDownload, describeBatchDownloadFailure } from '../lib/gallery/batchDownload';
 import { FolderPreview } from './FolderPreview';
-import { FolderShareDialog } from './FolderShareDialog';
 import { buildFolderPreviewIndex } from './folderPreviews';
 import { describeBatchDelete } from '../lib/gallery/deleteConfirmation';
 import { groupBrainstormImages } from './galleryOrdering';
 import { fetchMediaBlob, shouldOpenDownloadFallback } from '../lib/gallery/mediaDownload';
 import { getGalleryAspectRatio, getGalleryCardStyle, getGallerySwipeDirection, isGalleryDismissSwipe, getNavigableGalleryMedia, type GallerySwipeStart } from './galleryPresentation';
 import { GALLERY_DRAG_TYPE, GALLERY_DRAG_ID, GALLERY_DRAG_MEDIA_IDS, getDraggedMediaIds, readGalleryDragPayload, getMediaIdsForMove, canMoveGalleryFolder, type GalleryDragPayload } from './galleryDragDrop';
+
+const GalleryImageEditor = React.lazy(() => import('./GalleryImageEditor').then(module => ({ default: module.GalleryImageEditor })));
+const ImageCompareDialog = React.lazy(() => import('./ImageCompareDialog').then(module => ({ default: module.ImageCompareDialog })));
+const YouTubePreviewDialog = React.lazy(() => import('./YouTubePreviewDialog').then(module => ({ default: module.YouTubePreviewDialog })));
+const FolderShareDialog = React.lazy(() => import('./FolderShareDialog').then(module => ({ default: module.FolderShareDialog })));
+const dialogLoading = <div role="status" className="fixed inset-0 z-[350] grid place-items-center bg-black/70 text-sm text-gray-200 backdrop-blur-sm"><span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading dialog…</span></div>;
 
 // --- Constants ---
 const ITEMS_PER_PAGE = 48;
@@ -1943,7 +1945,7 @@ export const Gallery: React.FC<GalleryProps> = ({
     >
 
       <HelpCenter open={isHelpCenterOpen} onClose={() => setIsHelpCenterOpen(false)} />
-      {sharingFolder && !isReadOnly && <FolderShareDialog key={sharingFolder.id} folder={sharingFolder} onClose={() => setSharingFolder(null)} />}
+      {sharingFolder && !isReadOnly && <React.Suspense fallback={dialogLoading}><FolderShareDialog key={sharingFolder.id} folder={sharingFolder} onClose={() => setSharingFolder(null)} /></React.Suspense>}
 
       {isCreatingFolder && !isReadOnly && (
         <div
@@ -3003,16 +3005,16 @@ export const Gallery: React.FC<GalleryProps> = ({
         </div>
       )}
 
-      {comparisonIds && <ImageCompareDialog images={comparisonImages} onClose={closeComparison}
-        onToggleFavorite={onToggleFavorite} isReadOnly={isReadOnly} loadDetails={loadComparisonDetails} refreshSource={refreshComparisonSource} />}
+      {comparisonIds && <React.Suspense fallback={dialogLoading}><ImageCompareDialog images={comparisonImages} onClose={closeComparison}
+        onToggleFavorite={onToggleFavorite} isReadOnly={isReadOnly} loadDetails={loadComparisonDetails} refreshSource={refreshComparisonSource} /></React.Suspense>}
 
-      {isYouTubePreviewOpen && selectedMedia && isComparableImage(selectedMedia) && <YouTubePreviewDialog
+      {isYouTubePreviewOpen && selectedMedia && isComparableImage(selectedMedia) && <React.Suspense fallback={dialogLoading}><YouTubePreviewDialog
         media={selectedMedia}
         currentIndex={previewIndex} totalImages={previewImages.length} favoritesOnly={showFavoritesOnly}
         onNavigate={direction => handleNavigate(direction, true)}
         initialTitle={folders.find(folder => folder.id === selectedMedia.folderId)?.name || selectedMedia.referenceImages?.find(ref => ref.youtubeSource?.title)?.youtubeSource?.title || 'Your next video'}
         channelName={galleryOwner?.display_name || userProfile?.display_name}
-        onClose={() => setIsYouTubePreviewOpen(false)} refreshSource={refreshComparisonSource} />}
+        onClose={() => setIsYouTubePreviewOpen(false)} refreshSource={refreshComparisonSource} /></React.Suspense>}
 
       {/* Detail Modal */}
       {searchDialog}
@@ -3111,7 +3113,9 @@ export const Gallery: React.FC<GalleryProps> = ({
               </div>}
             </> : null}
             {canEditSelectedMedia && (isEditingSelectedMedia || isDetailsVisible) && <div className={`w-full flex shrink-0 flex-col items-center ${isEditingSelectedMedia ? 'md:my-auto' : ''}`} onClick={event => event.stopPropagation()}>
-              <GalleryImageEditor key={selectedMedia.id} image={selectedMedia} images={images} isEditing={isEditingSelectedMedia} onStart={() => setEditingMediaId(selectedMedia.id)} onGenerate={onEditGenerate!} onClose={() => setEditingMediaId(null)} onEditResult={result => { setSelectedMediaId(result.id); setEditingMediaId(result.id); }} initialTextModel={imageEditTextModel} refreshSource={refreshComparisonSource} />
+              <React.Suspense fallback={<div role="status" className="flex items-center gap-2 py-4 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" />Loading edit controls…</div>}>
+                <GalleryImageEditor key={selectedMedia.id} image={selectedMedia} images={images} isEditing={isEditingSelectedMedia} onStart={() => setEditingMediaId(selectedMedia.id)} onGenerate={onEditGenerate!} onClose={() => setEditingMediaId(null)} onEditResult={result => { setSelectedMediaId(result.id); setEditingMediaId(result.id); }} initialTextModel={imageEditTextModel} refreshSource={refreshComparisonSource} />
+              </React.Suspense>
             </div>}
           </div>
 
