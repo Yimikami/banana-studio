@@ -2304,10 +2304,25 @@ export const moveFolderToFolder = async (folderId: string, targetParentId: strin
 
 // --- Template Methods ---
 
-export const saveTemplate = async (template: Template): Promise<void> => {
+export const saveTemplate = async (template: Template): Promise<Template> => {
   template = { ...template, config: { ...template.config, referenceImages: template.config.referenceImages?.map(withoutLegacyMask) } };
   const operationUserId = await bindMediaSession();
   if (supabase && !operationUserId) throw new Error('Sign in to save a reference.');
+  // Picker-backed audio URLs belong to this document, not to the saved template.
+  const referenceAudios = await Promise.all((template.config.referenceAudios || []).map(async reference => {
+    if (!reference.url.startsWith('blob:')) return reference;
+    const response = await fetch(reference.url);
+    if (!response.ok) throw new Error('Template audio could not be read. Attach the clip again.');
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('Template audio is empty. Attach the clip again.');
+    if (await bindMediaSession() !== operationUserId) throw new Error('The template account changed.');
+    const url = await uploadBlobToPublicUrl(blob, reference.mimeType || blob.type, 'template_audio');
+    if (await bindMediaSession() !== operationUserId) throw new Error('The template account changed.');
+    if (!url) throw new Error('Template audio could not be uploaded. Your draft is unchanged; try again.');
+    return { ...reference, url: persistMediaReference(url)! };
+  }));
+  if (template.config.referenceAudios) template = { ...template, config: { ...template.config, referenceAudios } };
+
   if (supabase) {
     try {
       const userId = operationUserId;
@@ -2327,6 +2342,7 @@ export const saveTemplate = async (template: Template): Promise<void> => {
     const tx = db.transaction(TEMPLATE_STORE_NAME, 'readwrite');
     tx.objectStore(TEMPLATE_STORE_NAME).put(template);
   } catch (error) { }
+  return template;
 };
 
 export const getTemplates = async (): Promise<Template[]> => {

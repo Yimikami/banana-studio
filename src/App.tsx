@@ -1721,8 +1721,8 @@ const AuthorizedWorkspace: React.FC<{
     };
 
     try {
-      await saveTemplate(newTemplate);
-      setTemplates(prev => [newTemplate, ...prev]);
+      const saved = await saveTemplate(newTemplate);
+      setTemplates(prev => [saved, ...prev]);
       toast.success('Template Saved', `"${name}" has been saved.`);
     } catch (e) {
       console.error("Failed to save template", e);
@@ -1736,8 +1736,8 @@ const AuthorizedWorkspace: React.FC<{
       config: { ...config } // Update with current config
     };
     try {
-      await saveTemplate(updatedTemplate);
-      setTemplates(prev => prev.map(t => t.id === template.id ? updatedTemplate : t));
+      const saved = await saveTemplate(updatedTemplate);
+      setTemplates(prev => prev.map(t => t.id === template.id ? saved : t));
       toast.success('Template Updated', `"${template.name}" has been updated.`);
     } catch (e) {
       console.error("Failed to update template", e);
