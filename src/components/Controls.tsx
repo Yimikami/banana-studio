@@ -1246,8 +1246,8 @@ export const Controls: React.FC<ControlsProps> = ({
       };
       
       try {
-        await saveReferenceImage(savedImage);
-        setRefGallery(prev => [savedImage, ...prev]);
+        const saved = await saveReferenceImage(savedImage, refGallery);
+        setRefGallery(prev => prev.some(image => image.id === saved.id) ? prev : [saved, ...prev]);
       } catch (error) { setGenerationError(error instanceof Error ? error.message : 'Could not save reference.'); }
       return;
     }
@@ -1278,8 +1278,8 @@ export const Controls: React.FC<ControlsProps> = ({
           };
           
           try {
-            await saveReferenceImage(savedImage);
-            setRefGallery(prev => [savedImage, ...prev]);
+            const saved = await saveReferenceImage(savedImage);
+            setRefGallery(prev => [saved, ...prev]);
           } catch (error) { setGenerationError(error instanceof Error ? error.message : 'Could not save reference.'); }
         };
         reader.readAsDataURL(blob);
