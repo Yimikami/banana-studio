@@ -602,10 +602,7 @@ const openDB = async (expectedUserId?: string | null): Promise<IDBDatabase> => {
   const connections = shared;
   const opening = new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open(scopedName, DB_VERSION);
-    request.onerror = () => {
-      if (connections.get(scopedName) === opening) connections.delete(scopedName);
-      reject(request.error);
-    };
+    request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       const db = request.result;
       cacheConnections.add(db);
@@ -635,6 +632,8 @@ const openDB = async (expectedUserId?: string | null): Promise<IDBDatabase> => {
     };
   });
   shared.set(scopedName, opening);
+  // Forget any failed open, including one that threw synchronously, so a later call can retry.
+  opening.catch(() => { if (connections.get(scopedName) === opening) connections.delete(scopedName); });
   return opening;
 };
 
