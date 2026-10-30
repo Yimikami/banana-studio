@@ -1571,7 +1571,7 @@ const AuthorizedWorkspace: React.FC<{
 
       const timestamp = Date.now();
       const placeholder: GeneratedMedia = {
-        id: `temp-${timestamp}`,
+        id: crypto.randomUUID(),
         url: '',
         prompt: variedPrompt,
         promptPreparation: variationConfig.promptPreparation,
