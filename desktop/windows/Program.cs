@@ -30,6 +30,7 @@ internal sealed class StudioWindow : Form
     private Rectangle normalWindowBounds;
     private bool placementReady;
     private bool fullscreenTransition;
+    private FormWindowState lastVisibleState = FormWindowState.Normal;
     private readonly Label status = new() { Text = "Opening your local workspace…", ForeColor = Color.LightGray, BackColor = Color.FromArgb(13, 17, 23), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter };
 
     internal StudioWindow()
@@ -60,13 +61,17 @@ internal sealed class StudioWindow : Form
             await StartWorkspace();
         };
         LocationChanged += (_, _) => CaptureNormalWindowBounds();
-        SizeChanged += (_, _) => CaptureNormalWindowBounds();
+        SizeChanged += (_, _) =>
+        {
+            if (WindowState != FormWindowState.Minimized) lastVisibleState = WindowState;
+            CaptureNormalWindowBounds();
+        };
         DpiChanged += (_, _) => { if (placementReady) BeginInvoke(KeepWindowReachable); };
         FormClosing += (_, _) =>
         {
             CaptureNormalWindowBounds();
             var fullScreen = FormBorderStyle == FormBorderStyle.None;
-            var maximized = (fullScreen ? previousState : WindowState) == FormWindowState.Maximized;
+            var maximized = (fullScreen ? previousState : lastVisibleState) == FormWindowState.Maximized;
             if (placementReady) WindowPlacement.Save(WorkspaceProcess.DataDirectory, normalWindowBounds, maximized);
         };
         FormClosed += (_, _) => { workspace.Dispose(); web.Dispose(); if (profile != null) { try { Directory.Delete(profile, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } } };
