@@ -3,6 +3,7 @@ import { WorkspaceBar } from './components/WorkspaceBar';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Controls } from './components/Controls';
+import { getReferenceImageLimit } from './lib/images/imageReferences';
 import { Gallery } from './components/Gallery';
 import { HistoryPanel } from './components/HistoryPanel';
 import { AuthBoundary } from './components/AuthBoundary';
@@ -1682,10 +1683,7 @@ const AuthorizedWorkspace: React.FC<{
           let limit: number | null = null;
 
           flushSync(() => setConfig(prev => {
-            const isH3Video = prev.mode === 'video' && prev.videoModel === 'minimax-h3';
-            const MAX_IMAGES = isH3Video ? (prev.h3MaxMode&&prev.h3MaxMode!=='auto'?H3_MAX_CAPABILITIES[getH3MaxMode(prev)].images.max+(getH3MaxMode(prev)==='reference_to_video'?new Set([prev.h3MaxOptions?.startImageId,prev.h3MaxOptions?.middleImageId,prev.h3MaxOptions?.endImageId].filter(id=>id&&prev.referenceImages.some(ref=>ref.id===id))).size:0):9)
-              : prev.mode === 'video' && prev.videoModel === 'seedance-2.0' ? 9
-              : prev.mode === 'image' && prev.imageModel === SUNBURST_MODEL ? 16 : 14;
+            const MAX_IMAGES = getReferenceImageLimit(prev);
             if ((prev.referenceImages?.length || 0) >= MAX_IMAGES) { limit = MAX_IMAGES; return prev; }
 
             return {
@@ -1761,7 +1759,8 @@ const AuthorizedWorkspace: React.FC<{
     try {
       const imageModel = resolveImageModel(template.config.imageModel ?? config.imageModel);
       const merged = mergePersonReferenceInputs(template.config.referenceImages || [], config.referenceImages || [], template.config.prompt, config.prompt, template.config.personGroups, config.personGroups);
-      const limit = imageModel === SUNBURST_MODEL ? 16 : 14;
+      const target = { ...template.config, imageModel, referenceImages: merged.references };
+      const limit = getReferenceImageLimit(target);
       if (merged.references.length > limit) throw new Error(`Bu şablonla toplam ${merged.references.length} referans oluyor. Önce referans sayısını ${limit} veya altına indir.`);
       recreateLoadIdRef.current += 1;
       recreateLoadingRef.current = null;
