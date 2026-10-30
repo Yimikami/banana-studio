@@ -93,6 +93,7 @@ export const YouTubeChannelRef: React.FC<YouTubeChannelRefProps> = ({
     requestRef.current = null;
     setIsGeneratingBrief(false);
     setIsLoading(false);
+    setIsDownloading(false);
     setPreparedVideo(null);
     setSelectedPersonIds(people.map(group => group.id));
     if (isOpen) setError('Your prompt or people changed. Prepare Brainstorm again with the current selection.');
@@ -195,6 +196,7 @@ export const YouTubeChannelRef: React.FC<YouTubeChannelRefProps> = ({
     requestRef.current = null;
     setIsLoading(false);
     setIsGeneratingBrief(false);
+    setIsDownloading(false);
     setChannel(null);
     setVideos([]);
     setSelectedIds(new Set());
@@ -366,51 +368,59 @@ export const YouTubeChannelRef: React.FC<YouTubeChannelRefProps> = ({
   );
 
   const handleConfirm = async () => {
-    if (selectedIds.size === 0) return;
+    if (selectedIds.size === 0 || requestRef.current) return;
+    const request = new AbortController();
+    requestRef.current = request;
 
     setIsDownloading(true);
     setDownloadProgress(0);
     setDownloadError(null);
 
-    // Preselected Top videos and retries can exceed the slots left in the draft.
-    const selected = videos.filter((v) => selectedIds.has(v.id)).slice(0, maxSelectable);
-    const results: ReferenceImage[] = [];
-    const failed: string[] = [];
-    let done = 0;
+    try {
+      // Preselected Top videos and retries can exceed the slots left in the draft.
+      const selected = videos.filter((v) => selectedIds.has(v.id)).slice(0, maxSelectable);
+      const results: ReferenceImage[] = [];
+      const failed: string[] = [];
+      let done = 0;
 
-    for (const video of selected) {
-      try {
-        const data = await downloadThumbnail(video.thumbnailUrl);
-        results.push({
-          id: Math.random().toString(36).substr(2, 9),
-          data,
-          mimeType: 'image/jpeg',
-          isThumbnailStyle: true,
-        });
-      } catch (err) {
-        console.warn(`Failed to download thumbnail for ${video.id}`, err);
-        failed.push(video.id);
+      for (const video of selected) {
+        try {
+          const data = await downloadThumbnail(video.thumbnailUrl, { signal: request.signal });
+          if (request.signal.aborted) return;
+          results.push({
+            id: Math.random().toString(36).substr(2, 9),
+            data,
+            mimeType: 'image/jpeg',
+            isThumbnailStyle: true,
+          });
+        } catch (err) {
+          if (request.signal.aborted) return;
+          console.warn(`Failed to download thumbnail for ${video.id}`, err);
+          failed.push(video.id);
+        }
+        done++;
+        setDownloadProgress(Math.round((done / selected.length) * 100));
       }
-      done++;
-      setDownloadProgress(Math.round((done / selected.length) * 100));
-    }
 
-    if (results.length > 0) {
-      onAddReferences(results);
-    }
+      if (results.length > 0) {
+        onAddReferences(results);
+      }
 
-    setIsDownloading(false);
-    if (failed.length > 0) {
-      // Keep the dialog open with only the failed videos selected, so they can be retried.
-      // Slots may have been used during the download: re-select only what still fits.
-      const retry = failed.slice(0, maxSelectableRef.current);
-      setSelectedIds(new Set(retry));
-      const summary = `${failed.length} of ${selected.length} thumbnail${selected.length !== 1 ? 's' : ''} could not be downloaded.`;
-      setDownloadError(retry.length ? `${summary} Try again.` : `${summary} No reference slots are free to retry.`);
-      return;
+      if (failed.length > 0) {
+        // Keep the dialog open with only the failed videos selected, so they can be retried.
+        // Slots may have been used during the download: re-select only what still fits.
+        const retry = failed.slice(0, maxSelectableRef.current);
+        setSelectedIds(new Set(retry));
+        const summary = `${failed.length} of ${selected.length} thumbnail${selected.length !== 1 ? 's' : ''} could not be downloaded.`;
+        setDownloadError(retry.length ? `${summary} Try again.` : `${summary} No reference slots are free to retry.`);
+        return;
+      }
+      setIsOpen(false);
+      reset();
+    } finally {
+      // Closing/reopening may already have started a different operation.
+      if (requestRef.current === request) { requestRef.current = null; setIsDownloading(false); }
     }
-    setIsOpen(false);
-    reset();
   };
 
   const maxSelectable = Math.max(0, Math.min(10, remainingSlots));
