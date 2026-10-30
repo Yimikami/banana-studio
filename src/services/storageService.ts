@@ -2480,18 +2480,11 @@ export const getReferenceGallery = async (): Promise<SavedReferenceImage[]> => {
     try {
       userId = await getCurrentUserId();
       if (!userId) return [];
-      let query = supabase
-        .from('reference_images')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (userId) {
-        query = query.or(`user_id.eq.${userId},is_shared.eq.true`);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      await requirePeopleSession(userId);
+      const data = await readSavedLibraryPages<any>(offset => supabase
+        .from('reference_images').select('*')
+        .or(`user_id.eq.${userId},is_shared.eq.true`)
+        .order('created_at', { ascending: false }).order('id', { ascending: true })
+        .range(offset, offset + 249), userId, 'Saved references could not be loaded.');
 
       if (data && data.length > 0) {
         await signMediaPaths(data.map(row => extractStoragePathFromUrl(row.data)));
@@ -2598,14 +2591,35 @@ const withPeopleDeadline = async <T>(milliseconds: number, message: string, sign
   } finally { task.dispose(); }
 };
 
+/** A short page may be a server row cap. Read to exhaustion and recheck the
+ * initiating account before exposing any library rows or caching photos. */
+const readSavedLibraryPages = async <T>(
+  readPage: (offset: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  userId: string,
+  message: string,
+  signal?: AbortSignal,
+): Promise<T[]> => {
+  const rows: T[] = [];
+  while (true) {
+    signal?.throwIfAborted();
+    await requirePeopleSession(userId);
+    const { data, error } = await readPage(rows.length);
+    signal?.throwIfAborted();
+    if (error) throw new Error(message, { cause: error });
+    await requirePeopleSession(userId);
+    if (!data?.length) return rows;
+    rows.push(...data);
+  }
+};
+
 /** Card details only: one person's photos can total many megabytes. */
 export const getSavedPeople = (signal?: AbortSignal): Promise<SavedPersonSummary[]> =>
   withPeopleDeadline(20_000, 'Saved people are taking too long to load. Check your connection and retry.', signal, async deadline => {
     const userId = await requirePeopleSession();
-    const { data, error } = await supabase.from('saved_people').select('id,user_id,name,is_me,is_shared,created_at,updated_at').or(`user_id.eq.${userId},is_shared.eq.true`)
-      .is('deleted_at', null).order('created_at', { ascending: false }).abortSignal(deadline);
-    if (error) throw new Error('Saved people could not be loaded. Please retry.');
-    await requirePeopleSession(userId);
+    const data = await readSavedLibraryPages<any>(offset => supabase.from('saved_people').select('id,user_id,name,is_me,is_shared,created_at,updated_at')
+      .or(`user_id.eq.${userId},is_shared.eq.true`).is('deleted_at', null)
+      .order('created_at', { ascending: false }).order('id', { ascending: true })
+      .range(offset, offset + 249).abortSignal(deadline), userId, 'Saved people could not be loaded. Please retry.', deadline);
     return (data || []).map((row: any) => ({ id: row.id, name: row.name, isMe: row.is_me, isShared: row.is_shared === true, canEdit: row.user_id === userId, createdAt: row.created_at, updatedAt: row.updated_at }));
   });
 
@@ -2621,10 +2635,9 @@ export const getSavedPeopleCovers = (people: SavedPersonSummary[], signal?: Abor
       else missing.push(person.id);
     }
     if (!missing.length) return covers;
-    const { data, error } = await supabase.from('saved_people').select('id,updated_at,cover:photos->0').or(`user_id.eq.${userId},is_shared.eq.true`)
-      .is('deleted_at', null).in('id', missing).abortSignal(deadline);
-    if (error) throw new Error('Saved people photos could not be loaded.');
-    await requirePeopleSession(userId);
+    const data = await readSavedLibraryPages<any>(offset => supabase.from('saved_people').select('id,updated_at,cover:photos->0')
+      .or(`user_id.eq.${userId},is_shared.eq.true`).is('deleted_at', null).in('id', missing)
+      .order('id', { ascending: true }).range(offset, offset + 249).abortSignal(deadline), userId, 'Saved people photos could not be loaded.', deadline);
     for (const row of (data || []) as any[]) {
       if (typeof row.cover?.data !== 'string') continue;
       savedPersonCovers.set(`${userId}:${row.id}`, { updatedAt: row.updated_at, cover: row.cover.data });
