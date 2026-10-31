@@ -8,7 +8,7 @@ import { MAX_VIDEO_UPLOAD_BYTES, MAX_VIDEO_UPLOAD_MB } from '../lib/references/m
 import { getSeedanceFrameError, prepareSeedanceFramePrompt } from '../lib/video/seedanceFrames';
 import { prepareReferenceAudio } from '../lib/video/referenceAudio';
 import { buildH3MaxInput, H3_MAX_CAPABILITIES, type H3MaxMode } from '../lib/video/h3Max';
-import { getH3MaxConfigError, getH3MaxMode, getH3MaxReferenceImages, getH3MaxRequestBody } from '../lib/video/h3MaxConfig';
+import { getH3MaxConfigError, getH3MaxMode, getH3MaxReferenceImages, getH3MaxRequestBody, getKnownVideoDuration } from '../lib/video/h3MaxConfig';
 import { normalizeH3MaxPromptLanguage } from '../lib/video/h3MaxPromptGuide';
 import { estimateH3MaxCost } from '../lib/video/h3MaxPricing';
 import { hydrateH3MaxReferenceDimensions } from '../lib/video/h3MaxReferenceMetadata';
@@ -818,7 +818,7 @@ const createH3MaxVideoTask = async (config: GenerationConfig, initiatingUserId?:
   const referenceVideos=await Promise.all((config.referenceVideos||[]).map(async(ref,index)=>{
     const isSupplemental=mode==='insert_video'&&index>0;
     const url=await resolveReferenceMediaUrl(ref.url,ref.mimeType,`H3 Max video ${index+1}`,'h3_video','mp4','video',isSupplemental?2:videoLimits[0],isSupplemental?15:videoLimits[1],true);
-    const duration=ref.duration??await getMediaDuration(url,'video')??undefined;
+    const duration=getKnownVideoDuration(ref.duration)??await getMediaDuration(url,'video')??undefined;
     return {...ref,url,duration};
   }));
   const referenceAudios=await Promise.all((config.referenceAudios||[]).map(async(ref,index)=>{

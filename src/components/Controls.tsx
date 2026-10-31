@@ -1,4 +1,5 @@
 import { getMediaMimeType as getMimeType } from '../lib/references/mediaMimeType';
+import { getReferenceImageLimit } from '../lib/images/imageReferences';
 import { useProviderRoute, ProviderRouteControl } from './ProviderRoutingSettings';
 import { seedanceProviderError } from '../lib/video/seedanceProviders';
 import { SavedReferenceImages } from './SavedReferenceImages';
@@ -463,8 +464,8 @@ export const Controls: React.FC<ControlsProps> = ({
   const galleryDropdownRef = useRef<HTMLDivElement>(null); // New ref for the portal content
   const [refGalleryPos, setRefGalleryPos] = useState({ bottom: 0, left: 0 });
 
-  // Undo State for removed images
-  const [undoStack, setUndoStack] = useState<{ images: ReferenceImage[]; positions?: number[]; prompt?: string; imagePromptCategory?: GenerationConfig['imagePromptCategory']; promptPreparation?: GenerationConfig['promptPreparation']; youtubeSource?: GenerationConfig['youtubeSource']; personGroups?: GenerationConfig['personGroups']; h3MaxOptions?: GenerationConfig['h3MaxOptions'] }[]>([]);
+  // Undo state for reference removal and clearing the composer.
+  const [undoStack, setUndoStack] = useState<{ images: ReferenceImage[]; positions?: number[]; prompt?: string; imagePromptCategory?: GenerationConfig['imagePromptCategory']; promptPreparation?: GenerationConfig['promptPreparation']; youtubeSource?: GenerationConfig['youtubeSource']; personGroups?: GenerationConfig['personGroups']; h3MaxOptions?: GenerationConfig['h3MaxOptions']; clearedConfig?: GenerationConfig }[]>([]);
 
   // Reference tile action popover state
   type RefPopoverKind = 'image' | 'video' | 'audio';
@@ -565,19 +566,7 @@ export const Controls: React.FC<ControlsProps> = ({
     ? (config.videoOperation === 'edit' || config.videoOperation === 'extend' ? 1 : 10)
     : 3;
   const maxReferenceAudios = isH3VideoConfig ? (h3State.available ? h3State.capabilities.audios.max : 0) : config.videoModel === 'seedance-2.5' ? 10 : 3;
-  const seedanceFrameOnly = config.videoModel === 'seedance-2.5'
-    && (config.videoOperation || 'generate') === 'generate'
-    && currentReferenceVideos.length === 0
-    && currentReferenceAudios.length === 0
-    && (config.referenceImages || []).length > 0
-    && (config.referenceImages || []).some(image => image.isFirstFrame || image.isLastFrame);
-  const maxReferenceImages = isH3VideoConfig
-    ? h3State.imageLimit
-    : config.mode === 'video' && config.videoModel === 'seedance-2.5'
-      ? (seedanceFrameOnly ? 2 : 30)
-      // Seedance 2.0 accepts at most 9 reference images (seedanceProviderError, EvoLink).
-      : config.mode === 'video' && config.videoModel === 'seedance-2.0' ? 9
-      : config.mode === 'image' && config.imageModel === SUNBURST_MODEL ? 16 : 14;
+  const maxReferenceImages = getReferenceImageLimit(config);
   // Attachments finish after awaits; they use the limits of the latest committed draft.
   const attachLimitsRef = useRef({ images: maxReferenceImages, audios: maxReferenceAudios, videos: maxReferenceVideos, config });
   useLayoutEffect(() => { attachLimitsRef.current = { images: maxReferenceImages, audios: maxReferenceAudios, videos: maxReferenceVideos, config }; });
@@ -955,7 +944,7 @@ export const Controls: React.FC<ControlsProps> = ({
 
   const handleClearAll = () => {
     if (config.prompt || config.referenceImages.length > 0 || config.personGroups?.length || (config.referenceVideos?.length || 0) > 0 || (config.referenceAudios?.length || 0) > 0) {
-        setUndoStack(prev => [...prev.slice(-9), { images: [...config.referenceImages], prompt: config.prompt, imagePromptCategory: config.imagePromptCategory, promptPreparation: config.promptPreparation, youtubeSource: config.youtubeSource, personGroups: getPersonDefinitions(config), h3MaxOptions: config.h3MaxOptions }]);
+        setUndoStack(prev => [...prev.slice(-9), { images: [...config.referenceImages], prompt: config.prompt, imagePromptCategory: config.imagePromptCategory, promptPreparation: config.promptPreparation, youtubeSource: config.youtubeSource, personGroups: getPersonDefinitions(config), h3MaxOptions: config.h3MaxOptions, clearedConfig: config }]);
         onChange({
           ...config,
           prompt: '',
@@ -1005,9 +994,31 @@ export const Controls: React.FC<ControlsProps> = ({
   const handleUndo = () => {
     if (undoStack.length === 0) return;
     const lastEntry = undoStack[undoStack.length - 1];
-    setUndoStack(prev => prev.slice(0, -1));
-    
     const updatedConfig = { ...config };
+    if (lastEntry.clearedConfig) {
+      const cleared = lastEntry.clearedConfig;
+      const videos = [...(config.referenceVideos || [])];
+      (cleared.referenceVideos || []).forEach((video, index) => {
+        if (!videos.some(current => current.id === video.id)) videos.splice(index, 0, video);
+      });
+      const audios = [...(config.referenceAudios || [])];
+      (cleared.referenceAudios || []).forEach((audio, index) => {
+        if (!audios.some(current => current.id === audio.id)) audios.splice(index, 0, audio);
+      });
+      Object.assign(updatedConfig, {
+        referenceVideos: videos,
+        referenceAudios: audios,
+        originalPrompt: cleared.originalPrompt,
+        enhancedForMode: cleared.enhancedForMode,
+        enhancedForImageModel: cleared.enhancedForImageModel,
+        enhancedForImageContextKey: cleared.enhancedForImageContextKey,
+        enhancedForVideoModel: cleared.enhancedForVideoModel,
+        enhancedForVideoOperation: cleared.enhancedForVideoOperation,
+        enhancedForVideoReferenceKey: cleared.enhancedForVideoReferenceKey,
+        enhancedForH3MaxMode: cleared.enhancedForH3MaxMode,
+        enhancedForH3MaxOptionsKey: cleared.enhancedForH3MaxOptionsKey,
+      });
+    }
     if (lastEntry.images.length > 0) {
       const restored = [...config.referenceImages];
       lastEntry.images.forEach((image, index) => {
@@ -1026,6 +1037,21 @@ export const Controls: React.FC<ControlsProps> = ({
     if (lastEntry.personGroups) {
       updatedConfig.personGroups = getPersonDefinitions({ referenceImages: updatedConfig.referenceImages, personGroups: [...(config.personGroups || []), ...lastEntry.personGroups] });
     }
+    if (lastEntry.clearedConfig) {
+      // Auto H3 actions resolve from the restored inputs, not the empty draft.
+      const restoredH3 = isH3VideoConfig ? getH3MaxUIState(updatedConfig) : null;
+      const videoLimit = restoredH3 ? (restoredH3.available ? restoredH3.capabilities.videos.max : 0) : maxReferenceVideos;
+      const audioLimit = restoredH3 ? (restoredH3.available ? restoredH3.capabilities.audios.max : 0) : maxReferenceAudios;
+      const imageLimit = getReferenceImageLimit(updatedConfig);
+      if (updatedConfig.referenceImages.length > imageLimit
+        || (updatedConfig.referenceVideos?.length || 0) > videoLimit
+        || (updatedConfig.referenceAudios?.length || 0) > audioLimit) {
+        setAttachmentError('Could not undo Clear: the current action has no room for the previous media references. Remove references or choose the previous action, then try Undo again.');
+        return;
+      }
+      setAttachmentError(null);
+    }
+    setUndoStack(prev => prev.slice(0, -1));
     onChange(updatedConfig);
   };
 
@@ -1621,7 +1647,7 @@ export const Controls: React.FC<ControlsProps> = ({
         return;
       }
 
-      // Ctrl/Cmd + Z → Undo image removal (when not in a text input)
+      // Ctrl/Cmd + Z → Undo reference removal or Clear (outside text inputs)
       if (isMod && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
         const activeEl = document.activeElement;
         const isInTextInput = activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement;
