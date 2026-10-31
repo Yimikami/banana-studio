@@ -14,13 +14,14 @@ const compiled = await build({ stdin: { contents: `
   export { removeH3MaxReferenceImages } from './src/lib/video/h3MaxConfig';
   export { getPromptEnhancementTarget, isEnhancedPromptStale } from './src/types';
   export { getH3MaxUIState } from './src/components/H3MaxSettings';
+  export { getReferenceImageLimit } from './src/lib/images/imageReferences';
 `, resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts' }, bundle: true, write: false, format: 'esm', platform: 'node' });
 const helpers = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text).toString('base64'));
 const code = transformSync(`module.exports = env => {
   const { config, onChange, undoStack, setUndoStack, setEnhanceError, refInputRef,
     getPersonDefinitions, getPersonId, removeH3MaxReferenceImages, isH3VideoConfig,
     h3PromptSupported, preEnhancePrompt, maxReferenceVideos, maxReferenceAudios, setAttachmentError, getH3MaxUIState,
-    insertUploadDraftRef, insertSourceUploadRef } = env;
+    insertUploadDraftRef, insertSourceUploadRef, getReferenceImageLimit } = env;
   ${source.slice(start, end)}
   return { clear: handleClearAll, undo: handleUndo, remove: handleRemoveImage, revert: handleRevertEnhancedPrompt };
 };`, { loader: 'ts', format: 'cjs' }).code;
@@ -161,4 +162,125 @@ test('later attachments cannot make Undo exceed the current media limit or consu
   f.undo();
   assert.deepEqual(f.state().referenceVideos, [base.referenceVideos[0], ...later.slice(0, 2)]);
   assert.equal(f.entries().length, 0);
+});
+
+const images = count => Array.from({ length: count }, (_, index) => image(`image-${index}`));
+
+test('H3 action changes reject excess restored images without consuming Undo, then allow retry', () => {
+  for (const [action, count] of [['text_to_video', 1], ['image_to_video', 3], ['lip_sync', 2], ['recast', 5]]) {
+    const initial = { ...base, referenceImages: images(count), referenceVideos: [], referenceAudios: [] };
+    const f = scenario(initial);
+    f.clear();
+    f.change(config => ({ ...config, h3MaxMode: action, prompt: 'Typed after Clear', videoDuration: 8 }));
+    const before = structuredClone(f.state());
+    f.undo();
+    assert.deepEqual(f.state(), before, action);
+    assert.equal(f.entries().length, 1, action);
+    assert.match(f.errors.at(-1), /previous media references/i);
+    f.change(config => ({ ...config, h3MaxMode: 'reference_to_video' }));
+    f.undo();
+    assert.deepEqual(f.state().referenceImages, initial.referenceImages);
+    assert.equal(f.state().videoDuration, 8);
+    assert.equal(f.entries().length, 0);
+    assert.equal(f.errors.at(-1), null);
+  }
+});
+
+test('Clear Undo honors lower image-model and Seedance capacities after switching models', () => {
+  for (const [initial, change] of [
+    [{ ...base, mode: 'image', referenceImages: images(16), referenceVideos: [], referenceAudios: [] }, { imageModel: 'gemini-nano-banana-2.1' }],
+    [{ ...base, videoModel: 'seedance-2.5', referenceImages: images(10), referenceVideos: [], referenceAudios: [] }, { videoModel: 'seedance-2.0' }],
+  ]) {
+    const f = scenario(initial);
+    f.clear();
+    f.change(config => ({ ...config, ...change }));
+    const before = structuredClone(f.state());
+    f.undo();
+    assert.deepEqual(f.state(), before);
+    assert.equal(f.entries().length, 1);
+    f.change(config => ({ ...config, imageModel: initial.imageModel, videoModel: initial.videoModel }));
+    f.undo();
+    assert.deepEqual(f.state().referenceImages, initial.referenceImages);
+    assert.equal(f.entries().length, 0);
+  }
+});
+
+test('image overflow keeps later media, prompt edits and settings intact until a successful retry', () => {
+  const initial = { ...base, mode: 'image', referenceImages: images(16), originalPrompt: 'Original image brief' };
+  Object.assign(initial, helpers.getPromptEnhancementTarget(initial));
+  const f = scenario(initial);
+  const laterVideo = { id: 'later-video', url: 'blob:later-video' };
+  const laterAudio = { id: 'later-audio', url: 'blob:later-audio' };
+  f.clear();
+  f.change(config => ({ ...config, imageModel: 'gemini-nano-banana-2.1', prompt: 'New draft text',
+    referenceVideos: [laterVideo], referenceAudios: [laterAudio], count: 3, resolution: '2K' }));
+  const before = structuredClone(f.state());
+  f.undo();
+  assert.deepEqual(f.state(), before);
+  assert.equal(f.entries().length, 1);
+  f.change(config => ({ ...config, imageModel: initial.imageModel }));
+  f.undo();
+  assert.deepEqual(f.state().referenceImages, initial.referenceImages);
+  assert.deepEqual(f.state().referenceVideos, [...initial.referenceVideos, laterVideo]);
+  assert.deepEqual(f.state().referenceAudios, [...initial.referenceAudios, laterAudio]);
+  assert.equal(f.state().originalPrompt, initial.originalPrompt);
+  assert.equal(f.state().count, 3);
+  assert.equal(f.state().resolution, '2K');
+  assert.equal(f.entries().length, 0);
+});
+
+test('later image attachments cannot overflow Undo and can be removed before retrying', () => {
+  const initial = { ...base, mode: 'image', referenceImages: images(16), referenceVideos: [], referenceAudios: [] };
+  const f = scenario(initial);
+  const later = image('later');
+  f.clear();
+  f.change(config => ({ ...config, referenceImages: [later] }));
+  f.undo();
+  assert.deepEqual(f.state().referenceImages, [later]);
+  assert.equal(f.entries().length, 1);
+  f.change(config => ({ ...config, referenceImages: [] }));
+  f.undo();
+  assert.deepEqual(f.state().referenceImages, initial.referenceImages);
+  assert.equal(f.entries().length, 0);
+});
+
+test('Seedance frame limits use the restored operation and audio, including Edit', () => {
+  const references = images(3).map((reference, index) => ({ ...reference, isFirstFrame: index === 0 }));
+  const initial = { ...base, videoModel: 'seedance-2.5', videoOperation: 'generate',
+    referenceImages: references.slice(0, 2), referenceVideos: [], referenceAudios: [] };
+  const f = scenario(initial);
+  f.clear();
+  f.change(config => ({ ...config, referenceImages: [references[2]] }));
+  const before = structuredClone(f.state());
+  f.undo();
+  assert.deepEqual(f.state(), before);
+  assert.equal(f.entries().length, 1);
+  f.change(config => ({ ...config, videoOperation: 'edit', referenceVideos: base.referenceVideos }));
+  f.undo();
+  assert.deepEqual(f.state().referenceImages, [references[2], ...references.slice(0, 2)]);
+  assert.deepEqual(f.state().referenceVideos, base.referenceVideos);
+
+  // A target soundtrack makes this a reference request, rather than two frames.
+  const withAudio = scenario({ ...initial, referenceImages: references, referenceAudios: base.referenceAudios });
+  withAudio.clear();
+  withAudio.change(config => ({ ...config, referenceImages: [references[0]] }));
+  assert.equal(helpers.getReferenceImageLimit(withAudio.state()), 2);
+  withAudio.undo();
+  assert.deepEqual(withAudio.state().referenceAudios, base.referenceAudios);
+  assert.equal(withAudio.state().referenceImages.length, 3);
+  assert.equal(withAudio.entries().length, 0);
+});
+
+test('valid H3 Auto and selected keyframes retain their restored image capacity', () => {
+  for (const initial of [
+    { ...base, h3MaxMode: 'auto', referenceImages: images(9), referenceVideos: [], referenceAudios: [] },
+    { ...base, referenceImages: images(11), referenceVideos: [], referenceAudios: [],
+      h3MaxOptions: { startImageId: 'image-0', endImageId: 'image-1' } },
+  ]) {
+    const f = scenario(initial);
+    f.clear(); f.undo();
+    assert.deepEqual(f.state().referenceImages, initial.referenceImages);
+    assert.deepEqual(f.state().h3MaxOptions, initial.h3MaxOptions);
+    assert.equal(f.entries().length, 0);
+  }
 });
