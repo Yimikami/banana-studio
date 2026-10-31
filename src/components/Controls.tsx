@@ -1069,8 +1069,11 @@ export const Controls: React.FC<ControlsProps> = ({
       const restoredH3 = isH3VideoConfig ? getH3MaxUIState(updatedConfig) : null;
       const videoLimit = restoredH3 ? (restoredH3.available ? restoredH3.capabilities.videos.max : 0) : maxReferenceVideos;
       const audioLimit = restoredH3 ? (restoredH3.available ? restoredH3.capabilities.audios.max : 0) : maxReferenceAudios;
-      if ((updatedConfig.referenceVideos?.length || 0) > videoLimit || (updatedConfig.referenceAudios?.length || 0) > audioLimit) {
-        setAttachmentError('Could not undo Clear: the current action has no room for the previous video or audio references. Remove references or choose the previous action, then try Undo again.');
+      const imageLimit = getReferenceImageLimit(updatedConfig);
+      if (updatedConfig.referenceImages.length > imageLimit
+        || (updatedConfig.referenceVideos?.length || 0) > videoLimit
+        || (updatedConfig.referenceAudios?.length || 0) > audioLimit) {
+        setAttachmentError('Could not undo Clear: the current action has no room for the previous media references. Remove references or choose the previous action, then try Undo again.');
         return;
       }
       setAttachmentError(null);

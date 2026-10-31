@@ -25,6 +25,13 @@ const initial: GenerationConfig = {
   videoAspectRatio: '16:9', videoQuality: '720p', videoDuration: 5, audioEnabled: true, videoPromptExpansionMode: 'balanced',
 };
 Object.assign(initial, getPromptEnhancementTarget(initial));
+const h3Images: GenerationConfig = {
+  ...initial, videoModel: 'minimax-h3', h3MaxMode: 'reference_to_video', videoQuality: '768p',
+  prompt: 'Üç görselden bir video hazırla', originalPrompt: undefined, promptPreparation: undefined,
+  referenceImages: Array.from({ length: 3 }, (_, index) => ({ id: `scene-${index}`, mimeType: 'image/png', width: 1, height: 1,
+    data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j+foAAAAASUVORK5CYII=' })),
+  referenceVideos: [], referenceAudios: [], h3MaxOptions: {},
+};
 
 function Fixture() {
   const [config, setConfig] = useState(initial);
@@ -33,6 +40,7 @@ function Fixture() {
     <p>Synthetic references only. Generation is disabled and application requests are mocked.</p>
     <button onClick={() => setConfig(initial)}>Load prepared video draft</button>{' '}
     <button onClick={() => setConfig({ ...initial, prompt: '', originalPrompt: undefined, promptPreparation: undefined })}>Load media-only draft</button>
+    {' '}<button onClick={() => setConfig(h3Images)}>Görselli H3 taslağı yükle</button>
     <pre aria-label="Current draft">{JSON.stringify(config, null, 2)}</pre>
     <Controls config={config} onChange={setConfig} onGenerate={() => { throw new Error('Generation is disabled in this fixture.'); }}
       activeRequests={0} templates={[]} onSaveTemplate={() => {}} onUpdateTemplate={() => {}}
